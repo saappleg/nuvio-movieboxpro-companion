@@ -82,6 +82,14 @@ http://SERVER_TAILSCALE_IP:6080/vnc.html
 
 Enter `NOVNC_PASSWORD`. In another private browser tab, request the companion login window using the URL described in the main README. The Chromium window appears in noVNC. Complete MovieBoxPro's code-login flow there. Never share the active code.
 
+For the guided flow, open the companion dashboard on the Pixel:
+
+```text
+http://SERVER_TAILSCALE_IP:43110/setup?key=YOUR_COMPANION_KEY
+```
+
+The key is removed from the address bar after the dashboard creates an HTTP-only local session. Use **Open server desktop**, then **Open login window**, complete login in the private desktop, and select **Check status**.
+
 Verify authentication with the protected `/status` URL. Close the noVNC tab afterward; the Chromium profile remains in the Docker volume.
 
 ## 5. Install the Nuvio plugin

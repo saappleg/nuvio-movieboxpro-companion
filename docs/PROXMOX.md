@@ -74,6 +74,8 @@ docker compose logs --tail=100 companion
 
 Use the noVNC address on port `6080` to complete MovieBoxPro login, then replace the Mac-local plugin URL in Nuvio with the VM's protected manifest URL.
 
+The easiest route is the guided dashboard at `http://VM_TAILSCALE_IP:43110/setup?key=YOUR_COMPANION_KEY`. It links to noVNC, controls the login window, checks session status, and provides the protected Nuvio installation URL.
+
 ## 5. Proxmox and network security
 
 - Do not open ports `43110`, `5900`, or `6080` on the router.

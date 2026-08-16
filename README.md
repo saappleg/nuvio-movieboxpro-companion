@@ -23,10 +23,11 @@ This is an unofficial integration for your own authorized account. It does not b
 5. Set a separate `PLUGIN_SETUP_KEY`; neither key is committed to the provider source.
 6. Set `HOST` to this computer's exact private LAN address when using a phone or TV.
 7. Run `npm start`.
-8. Open `http://HOST:43110/login?key=YOUR_COMPANION_KEY`.
-9. Complete MovieBoxPro's code-login flow yourself in the dedicated Chrome window. Do not share the active code. Google login is intentionally avoided because Google may reject automated browser profiles.
-10. Check `http://HOST:43110/status?key=YOUR_COMPANION_KEY`; it should report `authenticated: true`.
-11. Add `http://HOST:43110/manifest.json?key=YOUR_PLUGIN_SETUP_KEY` as a Nuvio plugin repository.
+8. Open `http://HOST:43110/setup?key=YOUR_COMPANION_KEY` for the guided dashboard. The key is exchanged for an HTTP-only local cookie and removed from the address bar.
+9. Use the dashboard to verify configuration and open the MovieBoxPro login window.
+10. Complete MovieBoxPro's code-login flow yourself. Do not share the active code. Google login is intentionally avoided because Google may reject automated browser profiles.
+11. Check MovieBoxPro status and reveal the protected Nuvio installation URL from the dashboard.
+12. Add that URL as a Nuvio plugin repository, then refresh plugins.
 
 If Nuvio runs on a different device, set `HOST` to this computer's exact private LAN address and allow only your home network through the firewall. The companion generates the provider URL automatically. Avoid `0.0.0.0`, and never expose this service to the public internet.
 
@@ -43,6 +44,18 @@ For continuous availability and safe remote-access considerations, see [Running 
 The included `Dockerfile` and `docker-compose.yml` support an always-on Linux server. They provide persistent browser storage and a password-protected noVNC desktop for completing MovieBoxPro login inside the container. Publish the ports only on the host's Tailscale IP; never on a public interface.
 
 See [Private Docker deployment](docs/DOCKER_TAILSCALE.md) for the complete setup.
+
+## Setup dashboard
+
+The responsive dashboard at `/setup` works on desktop and mobile browsers. It can:
+
+- show safe configuration status without returning stored keys;
+- save the Nuvio-facing URL and a TMDb v3 key;
+- open the dedicated MovieBoxPro login window and check authentication;
+- reveal and copy the protected Nuvio manifest URL on demand;
+- link to the private noVNC desktop in Docker deployments.
+
+The dashboard requires `COMPANION_KEY`. Never expose it or port `43110` to the public internet.
 
 Using Proxmox? Follow the [Proxmox deployment runbook](docs/PROXMOX.md).
 

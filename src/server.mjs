@@ -1,8 +1,8 @@
 import http from "node:http";
-import { readFile } from "node:fs/promises";
-import { mkdir } from "node:fs/promises";
+import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
+import { setupPage } from "./setup-ui.mjs";
 import {
   chooseCandidate,
   findEpisodeSourceId,
@@ -26,7 +26,6 @@ await loadEnv();
 
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 43110);
-const PUBLIC_URL = String(process.env.COMPANION_PUBLIC_URL || `http://${HOST}:${PORT}`).replace(/\/$/, "");
 const BROWSER_CHANNEL = process.env.BROWSER_CHANNEL || "chrome";
 const BASE = "https://www.movieboxpro.app";
 const PROFILE_DIR = path.resolve(process.env.MOVIEBOXPRO_PROFILE || "work/movieboxpro-profile");
@@ -34,6 +33,65 @@ let browserContext;
 let browserPage;
 let browserLaunchPromise;
 let browserWorkQueue = Promise.resolve();
+
+function publicUrl() {
+  return String(process.env.COMPANION_PUBLIC_URL || `http://${HOST}:${PORT}`).replace(/\/$/, "");
+}
+
+function parseCookies(header = "") {
+  return Object.fromEntries(header.split(";").map((part) => {
+    const index = part.indexOf("=");
+    return index < 0 ? ["", ""] : [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())];
+  }).filter(([key]) => key));
+}
+
+function setupAuthorized(req, url) {
+  const bearer = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const cookie = parseCookies(req.headers.cookie).companion_session || "";
+  const query = url.searchParams.get("key") || "";
+  return Boolean(process.env.COMPANION_KEY) && [bearer, cookie, query].includes(process.env.COMPANION_KEY);
+}
+
+function sendHtml(res, status, html, extraHeaders = {}) {
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    ...extraHeaders
+  });
+  res.end(html);
+}
+
+async function readJsonBody(req, limit = 16384) {
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > limit) throw new Error("Request body is too large");
+  }
+  return body ? JSON.parse(body) : {};
+}
+
+async function saveEnvValues(values) {
+  const envUrl = new URL("../.env", import.meta.url);
+  let text = "";
+  try { text = await readFile(envUrl, "utf8"); } catch {}
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const updates = new Map(Object.entries(values));
+  const next = lines.map((line) => {
+    const match = line.match(/^([A-Z0-9_]+)=/);
+    if (!match || !updates.has(match[1])) return line;
+    const value = updates.get(match[1]);
+    updates.delete(match[1]);
+    return `${match[1]}=${value}`;
+  });
+  for (const [key, value] of updates) next.push(`${key}=${value}`);
+  const temporary = new URL("../.env.tmp", import.meta.url);
+  await writeFile(temporary, `${next.join("\n")}\n`, { mode: 0o600 });
+  await rename(temporary, envUrl);
+  for (const [key, value] of Object.entries(values)) process.env[key] = value;
+}
 
 async function ensureBrowser() {
   if (browserContext) {
@@ -246,6 +304,72 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/health") return sendJson(res, 200, { ok: true, service: "movieboxpro-companion" });
     const suppliedKey = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
     const queryKey = url.searchParams.get("key") || "";
+    if (url.pathname === "/setup" && req.method === "GET") {
+      if (queryKey && process.env.COMPANION_KEY && queryKey === process.env.COMPANION_KEY) {
+        res.writeHead(303, {
+          Location: "/setup",
+          "Cache-Control": "no-store",
+          "Set-Cookie": `companion_session=${encodeURIComponent(process.env.COMPANION_KEY)}; HttpOnly; SameSite=Strict; Path=/`
+        });
+        return res.end();
+      }
+      if (!setupAuthorized(req, url)) {
+        return sendHtml(res, 401, "<!doctype html><meta name=viewport content='width=device-width'><title>Unauthorized</title><style>body{font:16px system-ui;max-width:42rem;margin:12vh auto;padding:1.5rem;background:#0b1020;color:#eef2ff}code{background:#18213b;padding:.2rem .4rem;border-radius:.3rem}</style><h1>Setup access required</h1><p>Open <code>/setup?key=YOUR_COMPANION_KEY</code> once. The key will be removed from the address bar and stored in an HTTP-only local session cookie.</p>");
+      }
+      return sendHtml(res, 200, setupPage());
+    }
+    if (url.pathname.startsWith("/api/setup/")) {
+      if (!setupAuthorized(req, url)) return sendJson(res, 401, { error: "Unauthorized" });
+      if (url.pathname === "/api/setup/state" && req.method === "GET") {
+        return sendJson(res, 200, {
+          service: "ready",
+          host: HOST,
+          port: PORT,
+          publicUrl: publicUrl(),
+          tmdbConfigured: Boolean(process.env.TMDB_API_KEY || process.env.TMDB_BEARER_TOKEN),
+          companionKeyConfigured: Boolean(process.env.COMPANION_KEY),
+          pluginKeyConfigured: Boolean(process.env.PLUGIN_SETUP_KEY),
+          docker: BROWSER_CHANNEL === "chromium",
+          noVncUrl: `http://${String(req.headers.host || "localhost").split(":")[0]}:6080/vnc.html`
+        });
+      }
+      if (url.pathname === "/api/setup/moviebox-status" && req.method === "GET") {
+        return sendJson(res, 200, await serializeBrowserWork(browserSessionStatus));
+      }
+      if (url.pathname === "/api/setup/login" && req.method === "POST") {
+        await serializeBrowserWork(openLoginWindow);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (url.pathname === "/api/setup/plugin-url" && req.method === "GET") {
+        if (!process.env.PLUGIN_SETUP_KEY) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
+        return sendJson(res, 200, {
+          url: `${publicUrl()}/manifest.json?key=${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}`
+        });
+      }
+      if (url.pathname === "/api/setup/config" && req.method === "POST") {
+        const body = await readJsonBody(req);
+        const updates = {};
+        if (typeof body.publicUrl === "string" && body.publicUrl.trim()) {
+          const parsed = new URL(body.publicUrl.trim());
+          if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error("Public URL must use http or https");
+          updates.COMPANION_PUBLIC_URL = parsed.href.replace(/\/$/, "");
+        }
+        if (typeof body.tmdbApiKey === "string" && body.tmdbApiKey.trim()) {
+          const value = body.tmdbApiKey.trim();
+          if (/[\r\n]/.test(value) || value.length > 512) throw new Error("Invalid TMDb API key");
+          updates.TMDB_API_KEY = value;
+          updates.TMDB_BEARER_TOKEN = "";
+        }
+        if (!Object.keys(updates).length) return sendJson(res, 400, { error: "No configuration changes supplied" });
+        await saveEnvValues(updates);
+        return sendJson(res, 200, { ok: true, publicUrl: publicUrl(), tmdbConfigured: Boolean(process.env.TMDB_API_KEY) });
+      }
+      if (url.pathname === "/api/setup/logout" && req.method === "POST") {
+        res.writeHead(204, { "Set-Cookie": "companion_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0" });
+        return res.end();
+      }
+      return sendJson(res, 404, { error: "Not found" });
+    }
     if (url.pathname === "/manifest.json" && req.method === "GET") {
       if (!process.env.PLUGIN_SETUP_KEY || queryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
       return sendJson(res, 200, {
@@ -270,7 +394,7 @@ const server = http.createServer(async (req, res) => {
       requireConfig();
       const template = await readFile(new URL("../provider/movieboxpro-local.js", import.meta.url), "utf8");
       const source = template
-        .replace("__COMPANION_URL__", JSON.stringify(PUBLIC_URL))
+        .replace("__COMPANION_URL__", JSON.stringify(publicUrl()))
         .replace("__COMPANION_KEY__", JSON.stringify(process.env.COMPANION_KEY));
       return sendJavaScript(res, source);
     }
@@ -319,6 +443,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`MovieBoxPro companion listening on http://${HOST}:${PORT}`);
   console.log("Use /login?key=<COMPANION_KEY> to open the dedicated MovieBoxPro login window.");
+  console.log("Use /setup?key=<COMPANION_KEY> for the guided setup dashboard.");
 });
 
 async function shutdown() {
