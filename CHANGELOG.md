@@ -4,6 +4,11 @@ All notable changes are documented here. Versions follow Semantic Versioning whi
 
 ## Unreleased
 
+## 0.3.1
+
+- Install noVNC after Playwright's operating-system dependencies so later package changes cannot remove it.
+- Fail the Proxmox installation clearly if the required noVNC web files are missing.
+
 ## 0.3.0
 
 - Prepare a Proxmox VE Community Scripts-compatible installer for an unprivileged Debian 13 LXC.
