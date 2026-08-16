@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+
+- Fix recommended and release cards failing to open when Nuvio URL-encodes `tmdb:` metadata IDs.
+
 ## 0.3.5
 
 - Add a removable Nuvio catalog add-on with Airing Today, This Week, New & Returning, and personalized recommendation rows.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { catalogManifest, loadCatalog, parseSeeds, resolveSeedShows, toMeta } from "../src/catalogs.mjs";
+import { catalogManifest, loadCatalog, matchCatalogRequestPath, parseSeeds, resolveSeedShows, toMeta } from "../src/catalogs.mjs";
 
 function response(data) {
   return { ok: true, json: async () => data };
@@ -39,4 +39,12 @@ test("recommendations combine seeds, rank overlaps, and exclude seed shows", asy
     });
   });
   assert.deepEqual(metas.map((item) => item.name), ["Shared", "Other"]);
+});
+
+test("metadata route accepts Nuvio's encoded TMDb IDs", () => {
+  assert.deepEqual(
+    matchCatalogRequestPath("/catalog/private-key/meta/series/tmdb%3A123.json"),
+    { key: "private-key", resource: "meta/series/tmdb%3A123.json", catalogId: undefined, metaId: "123" }
+  );
+  assert.equal(matchCatalogRequestPath("/catalog/private-key/meta/series/imdb%3Att123.json"), undefined);
 });
