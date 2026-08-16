@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Syntax checks
+        run: |
+          node --check src/server.mjs
+          node --check src/setup-ui.mjs
+          node --check scripts/init.mjs
+          node --check scripts/setup-url.mjs
+          bash -n docker/entrypoint.sh
+      - name: Reject common committed secrets
+        run: |
+          if grep -RIE --exclude-dir=.git --exclude=package-lock.json \
+            '(eyJ[a-zA-Z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,}|COMPANION_KEY=[0-9a-f]{32,}|PLUGIN_SETUP_KEY=[0-9a-f]{32,})' .; then
+            echo 'Potential secret found'
+            exit 1
+          fi
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: nuvio-movieboxpro-companion:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

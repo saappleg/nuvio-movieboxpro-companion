@@ -12,12 +12,22 @@ import {
   streamsFromPlayer
 } from "./parsers.mjs";
 
+const CONFIG_FILE = path.resolve(process.env.COMPANION_CONFIG || ".env");
+const PERSISTED_KEYS = [
+  "COMPANION_KEY",
+  "PLUGIN_SETUP_KEY",
+  "TMDB_API_KEY",
+  "TMDB_BEARER_TOKEN",
+  "COMPANION_PUBLIC_URL",
+  "STREAM_TIMEOUT_MS"
+];
+
 async function loadEnv() {
   try {
-    const text = await readFile(new URL("../.env", import.meta.url), "utf8");
+    const text = await readFile(CONFIG_FILE, "utf8");
     for (const line of text.split(/\r?\n/)) {
       const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
-      if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
+      if (match) process.env[match[1]] = match[2];
     }
   } catch {}
 }
@@ -74,10 +84,11 @@ async function readJsonBody(req, limit = 16384) {
 }
 
 async function saveEnvValues(values) {
-  const envUrl = new URL("../.env", import.meta.url);
   let text = "";
-  try { text = await readFile(envUrl, "utf8"); } catch {}
-  const lines = text.split(/\r?\n/).filter(Boolean);
+  try { text = await readFile(CONFIG_FILE, "utf8"); } catch {}
+  const lines = text
+    ? text.split(/\r?\n/).filter(Boolean)
+    : PERSISTED_KEYS.filter((key) => process.env[key] != null).map((key) => `${key}=${process.env[key]}`);
   const updates = new Map(Object.entries(values));
   const next = lines.map((line) => {
     const match = line.match(/^([A-Z0-9_]+)=/);
@@ -87,9 +98,10 @@ async function saveEnvValues(values) {
     return `${match[1]}=${value}`;
   });
   for (const [key, value] of updates) next.push(`${key}=${value}`);
-  const temporary = new URL("../.env.tmp", import.meta.url);
+  await mkdir(path.dirname(CONFIG_FILE), { recursive: true });
+  const temporary = `${CONFIG_FILE}.tmp`;
   await writeFile(temporary, `${next.join("\n")}\n`, { mode: 0o600 });
-  await rename(temporary, envUrl);
+  await rename(temporary, CONFIG_FILE);
   for (const [key, value] of Object.entries(values)) process.env[key] = value;
 }
 
@@ -374,12 +386,12 @@ const server = http.createServer(async (req, res) => {
       if (!process.env.PLUGIN_SETUP_KEY || queryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
       return sendJson(res, 200, {
         name: "MovieBoxPro Local",
-        version: "0.1.0",
+        version: "0.2.0",
         scrapers: [{
           id: "movieboxpro-local",
           name: "MovieBoxPro Local",
-          description: "Streams from your own MovieBoxPro account through your Mac companion",
-          version: "0.1.0",
+          description: "Streams from your own MovieBoxPro account through your private companion",
+          version: "0.2.0",
           author: "Local",
           supportedTypes: ["movie", "tv"],
           filename: `providers/movieboxpro-local.js?key=${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}`,

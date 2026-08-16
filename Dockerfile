@@ -17,6 +17,7 @@ RUN chmod 0755 ./docker/entrypoint.sh
 
 ENV DISPLAY=:99 \
     BROWSER_CHANNEL=chromium \
+    COMPANION_CONFIG=/data/companion.env \
     MOVIEBOXPRO_PROFILE=/data/movieboxpro-profile
 
 VOLUME ["/data"]

@@ -17,17 +17,16 @@ This is an unofficial integration for your own authorized account. It does not b
 ## Setup
 
 1. Install Node.js 20 or newer.
-2. Copy `.env.example` to `.env`.
-3. Set a long random `COMPANION_KEY`.
-4. Add your TMDb v3 API key (or API read-access token).
-5. Set a separate `PLUGIN_SETUP_KEY`; neither key is committed to the provider source.
-6. Set `HOST` to this computer's exact private LAN address when using a phone or TV.
-7. Run `npm start`.
-8. Open `http://HOST:43110/setup?key=YOUR_COMPANION_KEY` for the guided dashboard. The key is exchanged for an HTTP-only local cookie and removed from the address bar.
-9. Use the dashboard to verify configuration and open the MovieBoxPro login window.
-10. Complete MovieBoxPro's code-login flow yourself. Do not share the active code. Google login is intentionally avoided because Google may reject automated browser profiles.
-11. Check MovieBoxPro status and reveal the protected Nuvio installation URL from the dashboard.
-12. Add that URL as a Nuvio plugin repository, then refresh plugins.
+2. Run `npm install`.
+3. Run `npm run init` for computer-only access, or `npm run init:lan` to detect a private LAN address for a phone or TV. This creates `.env` with two different random keys and mode `0600`; it refuses to overwrite an existing configuration.
+4. Run `npm start`.
+5. In another terminal, run `npm run setup-url` and open the displayed private URL. Do not share it.
+6. Add your TMDb v3 API key through the guided dashboard.
+7. The dashboard exchanges the key for an HTTP-only local cookie and removes it from the address bar.
+8. Use the dashboard to verify configuration and open the MovieBoxPro login window.
+9. Complete MovieBoxPro's code-login flow yourself. Do not share the active code. Google login is intentionally avoided because Google may reject automated browser profiles.
+10. Check MovieBoxPro status and reveal the protected Nuvio installation URL from the dashboard.
+11. Add that URL as a Nuvio plugin repository, then refresh plugins.
 
 If Nuvio runs on a different device, set `HOST` to this computer's exact private LAN address and allow only your home network through the firewall. The companion generates the provider URL automatically. Avoid `0.0.0.0`, and never expose this service to the public internet.
 
@@ -42,6 +41,8 @@ For continuous availability and safe remote-access considerations, see [Running 
 ## Docker and private VPN
 
 The included `Dockerfile` and `docker-compose.yml` support an always-on Linux server. They provide persistent browser storage and a password-protected noVNC desktop for completing MovieBoxPro login inside the container. Publish the ports only on the host's Tailscale IP; never on a public interface.
+
+Docker stores dashboard-managed configuration at `/data/companion.env` alongside the persistent browser profile, so settings survive image rebuilds and container replacement.
 
 See [Private Docker deployment](docs/DOCKER_TAILSCALE.md) for the complete setup.
 
@@ -62,6 +63,8 @@ Using Proxmox? Follow the [Proxmox deployment runbook](docs/PROXMOX.md).
 ## License
 
 MIT. This project is an unofficial interoperability tool and is not affiliated with MovieBoxPro, Nuvio, or TMDb.
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Tests
 

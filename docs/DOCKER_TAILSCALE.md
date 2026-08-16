@@ -70,6 +70,8 @@ docker compose ps
 
 The named Docker volume `companion-data` preserves the Chromium profile across container replacement and restarts.
 
+Dashboard changes are written to `/data/companion.env` in the same named volume. On later starts this persistent file takes precedence over stale values passed through the original Compose `.env` file.
+
 The companion serializes browser startup so simultaneous Nuvio requests cannot launch competing Chromium instances. Compose also provides a health check, a restart policy, and a 30-second graceful shutdown window so Chromium can release its persistent profile cleanly.
 
 ## 4. Log into MovieBoxPro
