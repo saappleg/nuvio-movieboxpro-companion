@@ -12,7 +12,7 @@ import {
   parseSearchResults,
   streamsFromPlayer
 } from "./parsers.mjs";
-import { catalogManifest, loadCatalog, loadMeta, parseSeeds, resolveSeedShows } from "./catalogs.mjs";
+import { catalogManifest, loadCatalog, loadMeta, matchCatalogRequestPath, parseSeeds, resolveSeedShows } from "./catalogs.mjs";
 
 const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const APP_VERSION = String(packageMetadata.version);
@@ -400,12 +400,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 404, { error: "Not found" });
     }
     const privateRepository = matchPrivateRepositoryPath(url.pathname);
-    const catalogMatch = url.pathname.match(/^\/catalog\/([^/]+)\/(manifest\.json|catalog\/series\/([^/.]+)\.json|meta\/series\/(?:tmdb:)?(\d+)\.json|logo\.svg)$/);
-    if (catalogMatch && req.method === "GET") {
-      if (!process.env.PLUGIN_SETUP_KEY || decodeURIComponent(catalogMatch[1]) !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      if (catalogMatch[2] === "manifest.json") return sendJson(res, 200, catalogManifest(APP_VERSION, catalogMatch[1]));
-      if (catalogMatch[3]) return sendJson(res, 200, { metas: await loadCatalog(catalogMatch[3]) });
-      if (catalogMatch[4]) return sendJson(res, 200, { meta: await loadMeta(catalogMatch[4]) });
+    const catalogRequest = matchCatalogRequestPath(url.pathname);
+    if (catalogRequest && req.method === "GET") {
+      if (!process.env.PLUGIN_SETUP_KEY || catalogRequest.key !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
+      if (catalogRequest.resource === "manifest.json") return sendJson(res, 200, catalogManifest(APP_VERSION, catalogRequest.key));
+      if (catalogRequest.catalogId) return sendJson(res, 200, { metas: await loadCatalog(catalogRequest.catalogId) });
+      if (catalogRequest.metaId) return sendJson(res, 200, { meta: await loadMeta(catalogRequest.metaId) });
       res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" });
       return res.end("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'><rect width='128' height='128' rx='24' fill='%2311182a'/><path d='M31 24v14m66-14v14M23 48h82M29 31h70a8 8 0 0 1 8 8v61a8 8 0 0 1-8 8H29a8 8 0 0 1-8-8V39a8 8 0 0 1 8-8z' fill='none' stroke='%237c9cff' stroke-width='9'/></svg>");
     }

@@ -71,6 +71,19 @@ export function parseSeeds(value = process.env.RECOMMENDATION_SEEDS || "[]") {
   } catch { return []; }
 }
 
+export function matchCatalogRequestPath(pathname) {
+  const match = String(pathname).match(/^\/catalog\/([^/]+)\/(manifest\.json|catalog\/series\/([^/.]+)\.json|meta\/series\/([^/]+)\.json|logo\.svg)$/);
+  if (!match) return undefined;
+  let key;
+  let metaId;
+  try {
+    key = decodeURIComponent(match[1]);
+    metaId = match[4] ? decodeURIComponent(match[4]).replace(/^tmdb:/i, "") : undefined;
+  } catch { return undefined; }
+  if (metaId && !/^\d+$/.test(metaId)) return undefined;
+  return { key, resource: match[2], catalogId: match[3], metaId };
+}
+
 export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = fetch, now = new Date()) {
   const date = (offset) => { const value = new Date(now); value.setUTCDate(value.getUTCDate() + offset); return value.toISOString().slice(0, 10); };
   let results = [];
