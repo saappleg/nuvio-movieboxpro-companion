@@ -27,6 +27,7 @@ jobs:
           node --check scripts/init.mjs
           node --check scripts/setup-url.mjs
           bash -n docker/entrypoint.sh
+          bash -n scripts/docker-setup.sh
       - name: Reject common committed secrets
         run: |
           if grep -RIE --exclude-dir=.git --exclude-dir=node_modules --exclude=package-lock.json \

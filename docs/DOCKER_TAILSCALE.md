@@ -40,6 +40,17 @@ Do not enable a Tailscale Funnel, router port forwarding, or a public reverse pr
 
 ## 2. Configure the container
 
+The recommended option generates the private configuration automatically:
+
+```sh
+chmod +x scripts/docker-setup.sh
+./scripts/docker-setup.sh
+```
+
+The helper uses the server's Tailscale IP, creates two different random access keys and a noVNC password, writes `.env` with mode `0600`, and prints the private setup URL. It refuses to overwrite an existing `.env` file.
+
+### Manual alternative
+
 Copy `.env.example` to `.env`. Generate different random values for `COMPANION_KEY` and `PLUGIN_SETUP_KEY`:
 
 ```sh
@@ -59,7 +70,7 @@ NOVNC_PASSWORD=8Random!
 
 `HOST=0.0.0.0` is used only inside the isolated container. Docker publishes the ports on `PRIVATE_BIND_IP`, which must be the server's Tailscale IP—not its public IP and not `0.0.0.0`.
 
-Complete the remaining TMDb and profile settings from `.env.example`. Never commit `.env`.
+You can add the TMDb key later through the guided dashboard. Never commit `.env`.
 
 ## 3. Pull and start the release package
 
@@ -85,7 +96,7 @@ From the Pixel while Tailscale is connected, open:
 http://SERVER_TAILSCALE_IP:6080/vnc.html
 ```
 
-Enter `NOVNC_PASSWORD`. In another private browser tab, request the companion login window using the URL described in the main README. The Chromium window appears in noVNC. Complete MovieBoxPro's code-login flow there. Never share the active code.
+Enter the generated `NOVNC_PASSWORD`. Keep this tab open, return to the companion dashboard, and select **Open login window**. The Chromium window appears in noVNC. Complete MovieBoxPro's code-login flow there. Never share the active code.
 
 For the guided flow, open the companion dashboard on the Pixel:
 
@@ -99,13 +110,13 @@ Verify authentication with the protected `/status` URL. Close the noVNC tab afte
 
 ## 5. Install the Nuvio plugin
 
-In the Nuvio web dashboard, replace the old Mac-local plugin with:
+The companion dashboard reveals the exact protected installation URL. Copy it into Nuvio's plugin/provider repository settings. Its format is:
 
 ```text
 http://SERVER_TAILSCALE_IP:43110/manifest.json?key=YOUR_PLUGIN_SETUP_KEY
 ```
 
-Refresh plugins. Both the Pixel and Android TV must have Tailscale connected whenever Nuvio loads the provider or requests streams.
+Refresh plugins, restart Nuvio if necessary, and test one movie and one TV episode. Both the Pixel and Android TV must have Tailscale connected whenever Nuvio loads the provider or requests streams.
 
 ## Maintenance
 

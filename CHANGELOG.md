@@ -2,6 +2,12 @@
 
 All notable changes are documented here. Versions follow Semantic Versioning while the project remains experimental.
 
+## Unreleased
+
+- Replace the README with a beginner-focused Docker, Proxmox, and Tailscale quick start.
+- Add a safe interactive Docker initializer that generates private keys and prints the setup URL.
+- Add copy-and-paste update and troubleshooting instructions.
+
 ## 0.2.1
 
 - Publish versioned and `latest` Docker images to GitHub Container Registry.

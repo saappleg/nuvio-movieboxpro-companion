@@ -59,10 +59,16 @@ Record the VM's stable `100.x.y.z` address. Tailscale should run on the Debian V
 ```sh
 git clone https://github.com/saappleg/nuvio-movieboxpro-companion.git
 cd nuvio-movieboxpro-companion
-cp .env.example .env
 ```
 
-Complete `.env` using [the Docker and Tailscale guide](DOCKER_TAILSCALE.md). Set both `PRIVATE_BIND_IP` and `COMPANION_PUBLIC_URL` to the VM's Tailscale IP. Generate fresh keys; do not copy the keys or browser profile from the public repository.
+Use the guided initializer:
+
+```sh
+chmod +x scripts/docker-setup.sh
+./scripts/docker-setup.sh
+```
+
+It detects or asks for the VM's Tailscale IP, creates fresh private keys and a desktop password, and prints the dashboard address. If you prefer manual configuration, copy `.env.example` to `.env` and follow [the Docker and Tailscale guide](DOCKER_TAILSCALE.md).
 
 Start the service:
 
