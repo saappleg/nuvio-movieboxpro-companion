@@ -1,0 +1,24 @@
+services:
+  companion:
+    build: .
+    container_name: nuvio-movieboxpro-companion
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 43110
+      BROWSER_CHANNEL: chromium
+      MOVIEBOXPRO_PROFILE: /data/movieboxpro-profile
+    ports:
+      - "${PRIVATE_BIND_IP:-127.0.0.1}:43110:43110"
+      - "${PRIVATE_BIND_IP:-127.0.0.1}:6080:6080"
+    volumes:
+      - companion-data:/data
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  companion-data:

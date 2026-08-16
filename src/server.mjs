@@ -26,6 +26,8 @@ await loadEnv();
 
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 43110);
+const PUBLIC_URL = String(process.env.COMPANION_PUBLIC_URL || `http://${HOST}:${PORT}`).replace(/\/$/, "");
+const BROWSER_CHANNEL = process.env.BROWSER_CHANNEL || "chrome";
 const BASE = "https://www.movieboxpro.app";
 const PROFILE_DIR = path.resolve(process.env.MOVIEBOXPRO_PROFILE || "work/movieboxpro-profile");
 let browserContext;
@@ -34,12 +36,13 @@ let browserPage;
 async function ensureBrowser() {
   if (browserContext && browserPage && !browserPage.isClosed()) return browserPage;
   await mkdir(PROFILE_DIR, { recursive: true });
-  browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
-    channel: "chrome",
+  const launchOptions = {
     headless: false,
     viewport: null,
     args: ["--start-maximized"]
-  });
+  };
+  if (BROWSER_CHANNEL !== "chromium") launchOptions.channel = BROWSER_CHANNEL;
+  browserContext = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
   browserPage = browserContext.pages()[0] || await browserContext.newPage();
   return browserPage;
 }
@@ -230,7 +233,7 @@ const server = http.createServer(async (req, res) => {
       requireConfig();
       const template = await readFile(new URL("../provider/movieboxpro-local.js", import.meta.url), "utf8");
       const source = template
-        .replace("__COMPANION_URL__", JSON.stringify(`http://${HOST}:${PORT}`))
+        .replace("__COMPANION_URL__", JSON.stringify(PUBLIC_URL))
         .replace("__COMPANION_KEY__", JSON.stringify(process.env.COMPANION_KEY));
       return sendJavaScript(res, source);
     }

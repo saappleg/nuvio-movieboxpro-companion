@@ -22,6 +22,8 @@ The dedicated Chrome profile must remain private and backed up securely. A resto
 
 Do not forward port `43110` on the router and do not place the companion directly on the public internet. If remote access is needed, use a private device-to-device VPN and bind/firewall the service so only the user's own devices can reach it. This requires additional testing because Nuvio must be able to retrieve both the protected manifest and provider over that private network.
 
+The repository now includes a Docker plus Tailscale deployment for this model. See [Private Docker deployment](DOCKER_TAILSCALE.md).
+
 ## VPS and cloud-hosting caveats
 
 A public VPS is not the recommended default. The companion relies on a persistent interactive Chrome profile, and a server would need a protected graphical browser session plus private-network access controls. Publicly exposing the service, its generated provider, or its browser profile risks the MovieBoxPro account and signed playback links.

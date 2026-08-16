@@ -38,6 +38,12 @@ Other users must run their own companion on a computer on their home network, au
 
 For continuous availability and safe remote-access considerations, see [Running the companion continuously](docs/ALWAYS_ON.md).
 
+## Docker and private VPN
+
+The included `Dockerfile` and `docker-compose.yml` support an always-on Linux server. They provide persistent browser storage and a password-protected noVNC desktop for completing MovieBoxPro login inside the container. Publish the ports only on the host's Tailscale IP; never on a public interface.
+
+See [Private Docker deployment](docs/DOCKER_TAILSCALE.md) for the complete setup.
+
 ## License
 
 MIT. This project is an unofficial interoperability tool and is not affiliated with MovieBoxPro, Nuvio, or TMDb.
