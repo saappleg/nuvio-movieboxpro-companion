@@ -4,6 +4,11 @@ All notable changes are documented here. Versions follow Semantic Versioning whi
 
 ## Unreleased
 
+## 0.3.4
+
+- Fall back to selection-based copying when the modern Clipboard API is blocked on an HTTP setup page.
+- Display the private Nuvio URL in a read-only text area so it can always be selected and copied manually.
+
 ## 0.3.3
 
 - Add Android TV-safe private repository URLs that end in `/manifest.json`.
