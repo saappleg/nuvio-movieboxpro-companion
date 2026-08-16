@@ -42,6 +42,15 @@ For continuous availability and safe remote-access considerations, see [Running 
 
 The included `Dockerfile` and `docker-compose.yml` support an always-on Linux server. They provide persistent browser storage and a password-protected noVNC desktop for completing MovieBoxPro login inside the container. Publish the ports only on the host's Tailscale IP; never on a public interface.
 
+Release images are published for AMD64 and ARM64 servers at `ghcr.io/saappleg/nuvio-movieboxpro-companion`. After preparing `.env`, start the packaged release without building locally:
+
+```sh
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Use `COMPANION_VERSION=0.2.1` to pin an exact version, or omit it to follow `latest`. The source-based `docker-compose.yml` remains available for development and local builds.
+
 Docker stores dashboard-managed configuration at `/data/companion.env` alongside the persistent browser profile, so settings survive image rebuilds and container replacement.
 
 See [Private Docker deployment](docs/DOCKER_TAILSCALE.md) for the complete setup.

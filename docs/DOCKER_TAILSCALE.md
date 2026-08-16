@@ -23,7 +23,7 @@ TorBox remains a separate Nuvio/AIOStreams source. TorBox does not run this cont
 
 - An always-on x86-64 or ARM64 Linux server with Docker Engine and Docker Compose.
 - Tailscale installed on the server, Pixel, and Android TV.
-- The repository cloned onto the server.
+- The repository cloned onto the server for its Compose and example configuration files.
 - A MovieBoxPro account the user is authorized to access.
 
 Tailscale supports Android 8 or later, including Android TV. Use its Android TV QR-code or generated-code login flow to add the TV to the same tailnet.
@@ -61,12 +61,15 @@ NOVNC_PASSWORD=8Random!
 
 Complete the remaining TMDb and profile settings from `.env.example`. Never commit `.env`.
 
-## 3. Build and start
+## 3. Pull and start the release package
 
 ```sh
-docker compose up -d --build
-docker compose ps
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+docker compose -f docker-compose.ghcr.yml ps
 ```
+
+The package supports AMD64 and ARM64 Linux hosts. To pin a tested release instead of following `latest`, add `COMPANION_VERSION=0.2.1` to `.env`.
 
 The named Docker volume `companion-data` preserves the Chromium profile across container replacement and restarts.
 
@@ -107,9 +110,9 @@ Refresh plugins. Both the Pixel and Android TV must have Tailscale connected whe
 ## Maintenance
 
 ```sh
-docker compose logs --tail=100 companion
-docker compose pull
-docker compose up -d --build
+docker compose -f docker-compose.ghcr.yml logs --tail=100 companion
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 Back up the Docker volume only to encrypted storage. Treat it as account-sensitive because it contains the persistent MovieBoxPro browser profile. Re-authenticate through noVNC if `/status` reports that the session expired.

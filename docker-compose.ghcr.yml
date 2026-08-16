@@ -1,0 +1,32 @@
+services:
+  companion:
+    image: ghcr.io/saappleg/nuvio-movieboxpro-companion:${COMPANION_VERSION:-latest}
+    container_name: nuvio-movieboxpro-companion
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 43110
+      BROWSER_CHANNEL: chromium
+      MOVIEBOXPRO_PROFILE: /data/movieboxpro-profile
+      COMPANION_CONFIG: /data/companion.env
+    ports:
+      - "${PRIVATE_BIND_IP:-127.0.0.1}:43110:43110"
+      - "${PRIVATE_BIND_IP:-127.0.0.1}:6080:6080"
+    volumes:
+      - companion-data:/data
+    shm_size: 1gb
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:43110/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  companion-data:
