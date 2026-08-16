@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="${COMPANION_CONFIG:-/etc/nuvio-movieboxpro-companion/companion.env}"
+
+if [[ ! -r "$CONFIG_FILE" ]]; then
+  echo "Companion configuration was not found at $CONFIG_FILE" >&2
+  exit 1
+fi
+
+read_setting() {
+  local name="$1"
+  sed -n "s/^${name}=//p" "$CONFIG_FILE" | tail -n 1
+}
+
+case "${1:-help}" in
+setup-url)
+  public_url="$(read_setting COMPANION_PUBLIC_URL)"
+  companion_key="$(read_setting COMPANION_KEY)"
+  printf '%s/setup?key=%s\n' "${public_url%/}" "$companion_key"
+  ;;
+desktop-url)
+  public_url="$(read_setting COMPANION_PUBLIC_URL)"
+  printf '%s/vnc.html\n' "${public_url%:43110}:6080"
+  ;;
+desktop-password)
+  read_setting NOVNC_PASSWORD
+  ;;
+status)
+  systemctl --no-pager --full status nuvio-companion nuvio-novnc
+  ;;
+logs)
+  journalctl -u nuvio-companion -u nuvio-novnc --no-pager -n "${2:-100}"
+  ;;
+restart)
+  systemctl restart nuvio-display nuvio-window-manager nuvio-vnc nuvio-novnc nuvio-companion
+  echo "Companion services restarted."
+  ;;
+*)
+  cat <<'EOF'
+Usage: nuvio-companion COMMAND
+
+Commands:
+  setup-url         Show the private guided-setup URL
+  desktop-url       Show the browser-desktop URL
+  desktop-password  Show the browser-desktop password
+  status            Show service health
+  logs [LINES]      Show recent logs (default: 100 lines)
+  restart           Restart the companion and browser desktop
+EOF
+  ;;
+esac

@@ -4,6 +4,13 @@ All notable changes are documented here. Versions follow Semantic Versioning whi
 
 ## Unreleased
 
+## 0.3.0
+
+- Prepare a Proxmox VE Community Scripts-compatible installer for an unprivileged Debian 13 LXC.
+- Install the companion directly in the LXC without nested Docker.
+- Add automatic startup, persistent browser data, release-aware updates, and private VNC access.
+- Add a `nuvio-companion` helper for setup links, desktop credentials, status, logs, and restarts.
+- Add syntax and metadata checks for the Proxmox installer to CI.
 - Replace the README with a beginner-focused Docker, Proxmox, and Tailscale quick start.
 - Add a safe interactive Docker initializer that generates private keys and prints the setup URL.
 - Add copy-and-paste update and troubleshooting instructions.

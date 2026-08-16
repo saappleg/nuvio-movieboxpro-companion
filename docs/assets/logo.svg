@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Nuvio MovieBoxPro Companion">
+  <rect width="512" height="512" rx="112" fill="#10182e"/>
+  <path d="M130 146a30 30 0 0 1 30-30h192a30 30 0 0 1 30 30v220a30 30 0 0 1-30 30H160a30 30 0 0 1-30-30z" fill="#7357ff"/>
+  <path d="m224 202 104 54-104 54z" fill="#fff"/>
+  <path d="M176 354h160" stroke="#80e7ff" stroke-width="24" stroke-linecap="round"/>
+</svg>
