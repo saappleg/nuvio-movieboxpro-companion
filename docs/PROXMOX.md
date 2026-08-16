@@ -80,6 +80,8 @@ Run the same Community Script again and select the existing container when promp
 
 Review release notes before updating. Proxmox snapshots and backups contain sensitive browser-session data and should be protected.
 
+Starting with version 0.3.5, reopen the private setup URL after updating. The **Temporary TV calendar catalogs** card lets you save recommendation shows and copy a separate manifest into **Nuvio Web → Add-ons**. It can be removed later without affecting MovieBoxPro playback.
+
 ## Network access
 
 The default address uses the LXC's LAN IP. That works while your Pixel and Android TV are on the same trusted home network. For access away from home, add the LXC to a private VPN such as Tailscale; do not use a public reverse proxy, Tailscale Funnel, or router port forwarding.

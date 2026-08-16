@@ -12,6 +12,7 @@ import {
   parseSearchResults,
   streamsFromPlayer
 } from "./parsers.mjs";
+import { catalogManifest, loadCatalog, loadMeta, parseSeeds, resolveSeedShows } from "./catalogs.mjs";
 
 const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const APP_VERSION = String(packageMetadata.version);
@@ -22,7 +23,8 @@ const PERSISTED_KEYS = [
   "TMDB_API_KEY",
   "TMDB_BEARER_TOKEN",
   "COMPANION_PUBLIC_URL",
-  "STREAM_TIMEOUT_MS"
+  "STREAM_TIMEOUT_MS",
+  "RECOMMENDATION_SEEDS"
 ];
 
 async function loadEnv() {
@@ -344,6 +346,7 @@ const server = http.createServer(async (req, res) => {
           tmdbConfigured: Boolean(process.env.TMDB_API_KEY || process.env.TMDB_BEARER_TOKEN),
           companionKeyConfigured: Boolean(process.env.COMPANION_KEY),
           pluginKeyConfigured: Boolean(process.env.PLUGIN_SETUP_KEY),
+          recommendationSeeds: parseSeeds(),
           docker: BROWSER_CHANNEL === "chromium",
           noVncUrl: `http://${String(req.headers.host || "localhost").split(":")[0]}:6080/vnc.html`
         });
@@ -360,6 +363,17 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, {
           url: privateRepositoryUrl(publicUrl(), process.env.PLUGIN_SETUP_KEY)
         });
+      }
+      if (url.pathname === "/api/setup/catalog-url" && req.method === "GET") {
+        if (!process.env.PLUGIN_SETUP_KEY) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
+        return sendJson(res, 200, { url: `${publicUrl()}/catalog/${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}/manifest.json` });
+      }
+      if (url.pathname === "/api/setup/recommendations" && req.method === "POST") {
+        requireConfig();
+        const seeds = await resolveSeedShows((await readJsonBody(req)).shows);
+        if (!seeds.length) return sendJson(res, 400, { error: "No matching TV shows were found" });
+        await saveEnvValues({ RECOMMENDATION_SEEDS: JSON.stringify(seeds) });
+        return sendJson(res, 200, { ok: true, seeds });
       }
       if (url.pathname === "/api/setup/config" && req.method === "POST") {
         const body = await readJsonBody(req);
@@ -386,6 +400,15 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 404, { error: "Not found" });
     }
     const privateRepository = matchPrivateRepositoryPath(url.pathname);
+    const catalogMatch = url.pathname.match(/^\/catalog\/([^/]+)\/(manifest\.json|catalog\/series\/([^/.]+)\.json|meta\/series\/(?:tmdb:)?(\d+)\.json|logo\.svg)$/);
+    if (catalogMatch && req.method === "GET") {
+      if (!process.env.PLUGIN_SETUP_KEY || decodeURIComponent(catalogMatch[1]) !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
+      if (catalogMatch[2] === "manifest.json") return sendJson(res, 200, catalogManifest(APP_VERSION, catalogMatch[1]));
+      if (catalogMatch[3]) return sendJson(res, 200, { metas: await loadCatalog(catalogMatch[3]) });
+      if (catalogMatch[4]) return sendJson(res, 200, { meta: await loadMeta(catalogMatch[4]) });
+      res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" });
+      return res.end("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'><rect width='128' height='128' rx='24' fill='%2311182a'/><path d='M31 24v14m66-14v14M23 48h82M29 31h70a8 8 0 0 1 8 8v61a8 8 0 0 1-8 8H29a8 8 0 0 1-8-8V39a8 8 0 0 1 8-8z' fill='none' stroke='%237c9cff' stroke-width='9'/></svg>");
+    }
     if ((url.pathname === "/manifest.json" || privateRepository?.resource === "manifest.json") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
       if (!process.env.PLUGIN_SETUP_KEY || repositoryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
