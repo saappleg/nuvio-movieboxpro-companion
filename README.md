@@ -95,6 +95,12 @@ In Nuvio's web dashboard:
 
 The plugin URL points to your server, not GitHub. Every user needs their own running companion and authorized MovieBoxPro session.
 
+### Optional temporary release and recommendation catalogs
+
+The setup page can also provide removable TV rows for **Airing Today**, **This Week**, **New & Returning**, and **Recommended for You**. In **Temporary TV calendar catalogs**, enter up to 12 show names you like and save them. Reveal the separate catalog URL and add it under **Nuvio Web → Add-ons**, then refresh and restart Nuvio on Android TV.
+
+The add-on cannot read Nuvio's local library. Entered names are resolved to TMDb IDs and remain in the companion's private configuration. When Nuvio gains its native Calendar page, remove only this calendar add-on; the MovieBoxPro provider can remain installed.
+
 ## Updating
 
 Your login, settings, and browser profile live in the persistent Docker volume and survive normal updates.
@@ -106,7 +112,7 @@ docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-To stay on one tested version, add `COMPANION_VERSION=0.3.4` to `.env`. Remove that line or set it to `latest` to follow new releases.
+To stay on one tested version, add `COMPANION_VERSION=0.3.5` to `.env`. Remove that line or set it to `latest` to follow new releases.
 
 ## Quick troubleshooting
 
@@ -169,5 +175,6 @@ The repository is safe to publish only while `.env`, browser profiles, generated
 - MovieBoxPro uses an undocumented private web interface and can change it without notice.
 - MovieBoxPro sessions expire and occasionally require code login again.
 - Search matching uses title, media type, year, and runtime because search results do not expose stable TMDb/IMDb mappings.
+- Temporary recommendations use show names configured on the companion because Nuvio does not expose its local library to add-ons.
 
 MIT licensed. This project is not affiliated with MovieBoxPro, Nuvio, or TMDb. See [CHANGELOG.md](CHANGELOG.md) for release history.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5
+
+- Add a removable Nuvio catalog add-on with Airing Today, This Week, New & Returning, and personalized recommendation rows.
+- Add guided recommendation seed setup using show names; resolved TMDb IDs stay on the companion.
+- Use a private path-authenticated add-on manifest compatible with Android TV.
+
 All notable changes are documented here. Versions follow Semantic Versioning while the project remains experimental.
 
 ## Unreleased
