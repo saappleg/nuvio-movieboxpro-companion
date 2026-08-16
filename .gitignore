@@ -1,0 +1,6 @@
+.env
+work/
+movieboxpro-profile/
+node_modules/
+outputs/
+.DS_Store
