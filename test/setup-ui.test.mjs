@@ -7,6 +7,8 @@ test("renders the guided setup dashboard without embedded secrets", () => {
   assert.match(html, /MovieBoxPro Companion/);
   assert.match(html, /Open login window/);
   assert.match(html, /Reveal installation URL/);
+  assert.match(html, /document\.execCommand\('copy'\)/);
+  assert.match(html, /textarea id="pluginUrl"/);
   assert.match(html, /Lock dashboard/);
   assert.doesNotMatch(html, /COMPANION_KEY=/);
   assert.doesNotMatch(html, /PLUGIN_SETUP_KEY=/);
