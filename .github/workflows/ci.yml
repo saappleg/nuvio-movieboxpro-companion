@@ -24,6 +24,7 @@ jobs:
         run: |
           node --check src/server.mjs
           node --check src/setup-ui.mjs
+          node --check src/repository.mjs
           node --check scripts/init.mjs
           node --check scripts/setup-url.mjs
           bash -n docker/entrypoint.sh
