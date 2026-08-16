@@ -44,6 +44,8 @@ The included `Dockerfile` and `docker-compose.yml` support an always-on Linux se
 
 See [Private Docker deployment](docs/DOCKER_TAILSCALE.md) for the complete setup.
 
+Using Proxmox? Follow the [Proxmox deployment runbook](docs/PROXMOX.md).
+
 ## License
 
 MIT. This project is an unofficial interoperability tool and is not affiliated with MovieBoxPro, Nuvio, or TMDb.
