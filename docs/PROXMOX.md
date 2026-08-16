@@ -67,9 +67,10 @@ Complete `.env` using [the Docker and Tailscale guide](DOCKER_TAILSCALE.md). Set
 Start the service:
 
 ```sh
-docker compose up -d --build
-docker compose ps
-docker compose logs --tail=100 companion
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+docker compose -f docker-compose.ghcr.yml ps
+docker compose -f docker-compose.ghcr.yml logs --tail=100 companion
 ```
 
 Use the noVNC address on port `6080` to complete MovieBoxPro login, then replace the Mac-local plugin URL in Nuvio with the VM's protected manifest URL.
@@ -105,7 +106,8 @@ A live VM backup is convenient but may capture Chromium while it is writing prof
 ```sh
 cd nuvio-movieboxpro-companion
 git pull --ff-only
-docker compose up -d --build
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
 docker image prune
 ```
 

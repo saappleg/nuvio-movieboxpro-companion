@@ -2,6 +2,13 @@
 
 All notable changes are documented here. Versions follow Semantic Versioning while the project remains experimental.
 
+## 0.2.1
+
+- Publish versioned and `latest` Docker images to GitHub Container Registry.
+- Build container images for both AMD64 and ARM64 Linux servers.
+- Add a package-based Compose file so self-hosters can update without building locally.
+- Update GitHub Actions dependencies to Node 24-compatible releases.
+
 ## 0.2.0
 
 - Persist dashboard-managed configuration in the Docker data volume.

@@ -386,12 +386,12 @@ const server = http.createServer(async (req, res) => {
       if (!process.env.PLUGIN_SETUP_KEY || queryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
       return sendJson(res, 200, {
         name: "MovieBoxPro Local",
-        version: "0.2.0",
+        version: "0.2.1",
         scrapers: [{
           id: "movieboxpro-local",
           name: "MovieBoxPro Local",
           description: "Streams from your own MovieBoxPro account through your private companion",
-          version: "0.2.0",
+          version: "0.2.1",
           author: "Local",
           supportedTypes: ["movie", "tv"],
           filename: `providers/movieboxpro-local.js?key=${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}`,
