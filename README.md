@@ -106,7 +106,7 @@ docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-To stay on one tested version, add `COMPANION_VERSION=0.3.2` to `.env`. Remove that line or set it to `latest` to follow new releases.
+To stay on one tested version, add `COMPANION_VERSION=0.3.3` to `.env`. Remove that line or set it to `latest` to follow new releases.
 
 ## Quick troubleshooting
 

@@ -4,6 +4,12 @@ All notable changes are documented here. Versions follow Semantic Versioning whi
 
 ## Unreleased
 
+## 0.3.3
+
+- Add Android TV-safe private repository URLs that end in `/manifest.json`.
+- Serve scraper code through the same path-based private key without query parameters.
+- Keep legacy query-string repository links working for existing mobile installations.
+
 ## 0.3.2
 
 - Read the Nuvio manifest and scraper version directly from the companion package version.

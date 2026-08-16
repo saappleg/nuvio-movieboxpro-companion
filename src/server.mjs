@@ -3,6 +3,7 @@ import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { setupPage } from "./setup-ui.mjs";
+import { matchPrivateRepositoryPath, privateRepositoryUrl, repositoryManifest } from "./repository.mjs";
 import {
   chooseCandidate,
   findEpisodeSourceId,
@@ -357,7 +358,7 @@ const server = http.createServer(async (req, res) => {
       if (url.pathname === "/api/setup/plugin-url" && req.method === "GET") {
         if (!process.env.PLUGIN_SETUP_KEY) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
         return sendJson(res, 200, {
-          url: `${publicUrl()}/manifest.json?key=${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}`
+          url: privateRepositoryUrl(publicUrl(), process.env.PLUGIN_SETUP_KEY)
         });
       }
       if (url.pathname === "/api/setup/config" && req.method === "POST") {
@@ -384,27 +385,15 @@ const server = http.createServer(async (req, res) => {
       }
       return sendJson(res, 404, { error: "Not found" });
     }
-    if (url.pathname === "/manifest.json" && req.method === "GET") {
-      if (!process.env.PLUGIN_SETUP_KEY || queryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      return sendJson(res, 200, {
-        name: "MovieBoxPro Local",
-        version: APP_VERSION,
-        scrapers: [{
-          id: "movieboxpro-local",
-          name: "MovieBoxPro Local",
-          description: "Streams from your own MovieBoxPro account through your private companion",
-          version: APP_VERSION,
-          author: "Local",
-          supportedTypes: ["movie", "tv"],
-          filename: `providers/movieboxpro-local.js?key=${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}`,
-          enabled: true,
-          formats: ["m3u8", "mp4", "mkv"],
-          contentLanguage: ["en"]
-        }]
-      });
+    const privateRepository = matchPrivateRepositoryPath(url.pathname);
+    if ((url.pathname === "/manifest.json" || privateRepository?.resource === "manifest.json") && req.method === "GET") {
+      const repositoryKey = privateRepository?.key || queryKey;
+      if (!process.env.PLUGIN_SETUP_KEY || repositoryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
+      return sendJson(res, 200, repositoryManifest(APP_VERSION, process.env.PLUGIN_SETUP_KEY, Boolean(privateRepository)));
     }
-    if (url.pathname === "/providers/movieboxpro-local.js" && req.method === "GET") {
-      if (!process.env.PLUGIN_SETUP_KEY || queryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
+    if ((url.pathname === "/providers/movieboxpro-local.js" || privateRepository?.resource === "providers/movieboxpro-local.js") && req.method === "GET") {
+      const repositoryKey = privateRepository?.key || queryKey;
+      if (!process.env.PLUGIN_SETUP_KEY || repositoryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
       requireConfig();
       const template = await readFile(new URL("../provider/movieboxpro-local.js", import.meta.url), "utf8");
       const source = template
