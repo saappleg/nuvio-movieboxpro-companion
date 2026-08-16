@@ -12,10 +12,6 @@ setting_up_container
 network_check
 update_os
 
-msg_info "Installing Desktop Dependencies"
-$STD apt install -y fluxbox novnc websockify x11vnc xvfb
-msg_ok "Installed Desktop Dependencies"
-
 NODE_VERSION="24" setup_nodejs
 
 fetch_and_deploy_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion" "tarball"
@@ -25,6 +21,15 @@ cd /opt/nuvio-movieboxpro-companion
 $STD npm ci --omit=dev
 PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright $STD npx playwright install --with-deps chromium
 msg_ok "Installed Application Dependencies"
+
+msg_info "Installing Desktop Dependencies"
+$STD apt install -y fluxbox websockify x11vnc xvfb
+$STD apt install -y novnc
+if [[ ! -f /usr/share/novnc/vnc.html ]]; then
+  msg_error "noVNC web files were not installed"
+  exit 1
+fi
+msg_ok "Installed Desktop Dependencies"
 
 msg_info "Configuring Companion"
 install -d -m 0700 /etc/nuvio-movieboxpro-companion
