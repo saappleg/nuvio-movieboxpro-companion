@@ -4,6 +4,11 @@ All notable changes are documented here. Versions follow Semantic Versioning whi
 
 ## Unreleased
 
+## 0.3.2
+
+- Read the Nuvio manifest and scraper version directly from the companion package version.
+- Prevent the version shown by Nuvio from drifting behind future companion releases.
+
 ## 0.3.1
 
 - Install noVNC after Playwright's operating-system dependencies so later package changes cannot remove it.

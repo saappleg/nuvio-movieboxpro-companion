@@ -12,6 +12,8 @@ import {
   streamsFromPlayer
 } from "./parsers.mjs";
 
+const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+const APP_VERSION = String(packageMetadata.version);
 const CONFIG_FILE = path.resolve(process.env.COMPANION_CONFIG || ".env");
 const PERSISTED_KEYS = [
   "COMPANION_KEY",
@@ -386,12 +388,12 @@ const server = http.createServer(async (req, res) => {
       if (!process.env.PLUGIN_SETUP_KEY || queryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
       return sendJson(res, 200, {
         name: "MovieBoxPro Local",
-        version: "0.2.1",
+        version: APP_VERSION,
         scrapers: [{
           id: "movieboxpro-local",
           name: "MovieBoxPro Local",
           description: "Streams from your own MovieBoxPro account through your private companion",
-          version: "0.2.1",
+          version: APP_VERSION,
           author: "Local",
           supportedTypes: ["movie", "tv"],
           filename: `providers/movieboxpro-local.js?key=${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}`,
