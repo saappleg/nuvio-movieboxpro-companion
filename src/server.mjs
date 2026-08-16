@@ -32,19 +32,56 @@ const BASE = "https://www.movieboxpro.app";
 const PROFILE_DIR = path.resolve(process.env.MOVIEBOXPRO_PROFILE || "work/movieboxpro-profile");
 let browserContext;
 let browserPage;
+let browserLaunchPromise;
+let browserWorkQueue = Promise.resolve();
 
 async function ensureBrowser() {
-  if (browserContext && browserPage && !browserPage.isClosed()) return browserPage;
-  await mkdir(PROFILE_DIR, { recursive: true });
-  const launchOptions = {
-    headless: false,
-    viewport: null,
-    args: ["--start-maximized"]
-  };
-  if (BROWSER_CHANNEL !== "chromium") launchOptions.channel = BROWSER_CHANNEL;
-  browserContext = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
-  browserPage = browserContext.pages()[0] || await browserContext.newPage();
-  return browserPage;
+  if (browserContext) {
+    if (browserPage && !browserPage.isClosed()) return browserPage;
+    browserPage = browserContext.pages().find((page) => !page.isClosed()) || await browserContext.newPage();
+    return browserPage;
+  }
+  if (browserLaunchPromise) return browserLaunchPromise;
+
+  browserLaunchPromise = (async () => {
+    await mkdir(PROFILE_DIR, { recursive: true });
+    const launchOptions = {
+      headless: false,
+      viewport: null,
+      args: ["--start-maximized"]
+    };
+    if (BROWSER_CHANNEL !== "chromium") launchOptions.channel = BROWSER_CHANNEL;
+    const context = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
+    browserContext = context;
+    context.on("close", () => {
+      if (browserContext === context) {
+        browserContext = undefined;
+        browserPage = undefined;
+      }
+    });
+    browserPage = context.pages()[0] || await context.newPage();
+    return browserPage;
+  })();
+
+  try {
+    return await browserLaunchPromise;
+  } finally {
+    browserLaunchPromise = undefined;
+  }
+}
+
+function withTimeout(promise, milliseconds, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function serializeBrowserWork(task) {
+  const work = browserWorkQueue.then(task, task);
+  browserWorkQueue = work.catch(() => {});
+  return work;
 }
 
 async function openLoginWindow() {
@@ -239,12 +276,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/login" && req.method === "GET") {
       if (!process.env.COMPANION_KEY || queryKey !== process.env.COMPANION_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      await openLoginWindow();
+      await serializeBrowserWork(openLoginWindow);
       return sendJson(res, 200, { ok: true, message: "Complete login in the dedicated Chrome window, then check /status." });
     }
     if (url.pathname === "/status" && req.method === "GET") {
       if (!process.env.COMPANION_KEY || queryKey !== process.env.COMPANION_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      return sendJson(res, 200, await browserSessionStatus());
+      return sendJson(res, 200, await serializeBrowserWork(browserSessionStatus));
     }
     if (url.pathname !== "/streams" || req.method !== "GET") return sendJson(res, 404, { error: "Not found" });
 
@@ -267,7 +304,11 @@ const server = http.createServer(async (req, res) => {
     }
     console.log(`[companion] stream request tmdb=${params.tmdbId} type=${params.mediaType}` +
       (params.mediaType === "tv" ? ` season=${Number(params.season)} episode=${Number(params.episode)}` : ""));
-    return sendJson(res, 200, await resolveStreams(params));
+    return sendJson(res, 200, await withTimeout(
+      serializeBrowserWork(() => resolveStreams(params)),
+      Number(process.env.STREAM_TIMEOUT_MS || 45000),
+      "Stream lookup timed out"
+    ));
   } catch (error) {
     // Deliberately do not log request headers, cookies, URLs, or response bodies.
     console.error(`[companion] ${error.message}`);
@@ -281,6 +322,7 @@ server.listen(PORT, HOST, () => {
 });
 
 async function shutdown() {
+  if (browserLaunchPromise) await browserLaunchPromise.catch(() => {});
   if (browserContext) await browserContext.close().catch(() => {});
   server.close(() => process.exit(0));
 }

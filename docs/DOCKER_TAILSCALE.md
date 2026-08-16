@@ -70,6 +70,8 @@ docker compose ps
 
 The named Docker volume `companion-data` preserves the Chromium profile across container replacement and restarts.
 
+The companion serializes browser startup so simultaneous Nuvio requests cannot launch competing Chromium instances. Compose also provides a health check, a restart policy, and a 30-second graceful shutdown window so Chromium can release its persistent profile cleanly.
+
 ## 4. Log into MovieBoxPro
 
 From the Pixel while Tailscale is connected, open:
@@ -101,6 +103,8 @@ docker compose up -d --build
 ```
 
 Back up the Docker volume only to encrypted storage. Treat it as account-sensitive because it contains the persistent MovieBoxPro browser profile. Re-authenticate through noVNC if `/status` reports that the session expired.
+
+Always use `docker compose stop`, `docker compose restart`, or a normal VM shutdown. Avoid force-killing Chromium or powering off the VM when possible. After an unclean host failure, start only one companion container against the volume and check `docker compose logs companion` for a profile-lock warning.
 
 ## Cloud VPS notes
 
