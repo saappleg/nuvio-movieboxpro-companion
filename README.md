@@ -1,90 +1,149 @@
 # MovieBoxPro Local Companion for Nuvio
 
-This proof of concept keeps the MovieBoxPro browser session and TMDb credential on your Mac. A small local HTTP service resolves Nuvio's TMDb request into freshly signed MovieBoxPro streams; the Nuvio provider only receives playable stream objects.
+Use your own authorized MovieBoxPro account as a private Nuvio stream source. The companion runs a logged-in browser on your server and gives Nuvio fresh playback links when you select a title.
 
-## Security model
+This is an unofficial interoperability project. It does not bypass MovieBoxPro login, VIP checks, DRM, or access controls.
 
-- `.env` is ignored by Git.
-- MovieBoxPro login happens in its official site inside a dedicated persistent Chrome profile.
-- The service never extracts, returns, or logs Google tokens or MovieBoxPro cookies.
-- Every `/streams` request requires a long companion key.
-- Responses use `Cache-Control: no-store`.
-- Default binding is `127.0.0.1`, so only this Mac can connect.
-- Signed playback URLs are short-lived and generated on demand.
+## Recommended setup: Proxmox or another Docker server
 
-This is an unofficial integration for your own authorized account. It does not bypass login, VIP checks, DRM, or access controls.
+This is the easiest setup and keeps the companion available when your Mac is off. It works on AMD64 and ARM64 Linux servers.
 
-## Setup
+### What you need
 
-1. Install Node.js 20 or newer.
-2. Run `npm install`.
-3. Run `npm run init` for computer-only access, or `npm run init:lan` to detect a private LAN address for a phone or TV. This creates `.env` with two different random keys and mode `0600`; it refuses to overwrite an existing configuration.
-4. Run `npm start`.
-5. In another terminal, run `npm run setup-url` and open the displayed private URL. Do not share it.
-6. Add your TMDb v3 API key through the guided dashboard.
-7. The dashboard exchanges the key for an HTTP-only local cookie and removes it from the address bar.
-8. Use the dashboard to verify configuration and open the MovieBoxPro login window.
-9. Complete MovieBoxPro's code-login flow yourself. Do not share the active code. Google login is intentionally avoided because Google may reject automated browser profiles.
-10. Check MovieBoxPro status and reveal the protected Nuvio installation URL from the dashboard.
-11. Add that URL as a Nuvio plugin repository, then refresh plugins.
+- A Linux server or Proxmox Debian VM with Docker and Docker Compose
+- Tailscale on the server, phone, and Android TV
+- Your own MovieBoxPro account
+- A free [TMDb API key](https://www.themoviedb.org/settings/api)
 
-If Nuvio runs on a different device, set `HOST` to this computer's exact private LAN address and allow only your home network through the firewall. The companion generates the provider URL automatically. Avoid `0.0.0.0`, and never expose this service to the public internet.
+Do not open router ports for this project. Your devices should reach it only through Tailscale.
 
-## Publishing and sharing
+### 1. Download the setup files
 
-The repository is safe to publish only when `.env` and `work/` remain ignored. The checked-in provider is a template: the companion injects each user's private LAN URL and generated companion key only when serving the protected local provider endpoint. Never commit a generated provider response, browser profile, HAR file, cookies, active login code, or a real TMDb credential.
+Run these commands on the server:
 
-Other users must run their own companion on a computer on their home network, authenticate their own authorized MovieBoxPro account, and add their own protected local manifest URL. A raw GitHub manifest cannot replace the local companion because MovieBoxPro authentication remains on the user's computer.
+```sh
+git clone https://github.com/saappleg/nuvio-movieboxpro-companion.git
+cd nuvio-movieboxpro-companion
+chmod +x scripts/docker-setup.sh
+./scripts/docker-setup.sh
+```
 
-For continuous availability and safe remote-access considerations, see [Running the companion continuously](docs/ALWAYS_ON.md).
+The helper detects or asks for the server's Tailscale IP, generates all private keys and passwords, and creates a private `.env` file. It will not overwrite an existing setup.
 
-## Docker and private VPN
-
-The included `Dockerfile` and `docker-compose.yml` support an always-on Linux server. They provide persistent browser storage and a password-protected noVNC desktop for completing MovieBoxPro login inside the container. Publish the ports only on the host's Tailscale IP; never on a public interface.
-
-Release images are published for AMD64 and ARM64 servers at `ghcr.io/saappleg/nuvio-movieboxpro-companion`. After preparing `.env`, start the packaged release without building locally:
+### 2. Start the companion
 
 ```sh
 docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
+docker compose -f docker-compose.ghcr.yml ps
 ```
 
-Use `COMPANION_VERSION=0.2.1` to pin an exact version, or omit it to follow `latest`. The source-based `docker-compose.yml` remains available for development and local builds.
+Wait until the container reports `healthy`. The first download is large because it includes Chromium and a private browser desktop.
 
-Docker stores dashboard-managed configuration at `/data/companion.env` alongside the persistent browser profile, so settings survive image rebuilds and container replacement.
+### 3. Open the guided setup page
 
-See [Private Docker deployment](docs/DOCKER_TAILSCALE.md) for the complete setup.
+The helper prints a private address similar to:
 
-## Setup dashboard
+```text
+http://100.x.y.z:43110/setup?key=YOUR_PRIVATE_KEY
+```
 
-The responsive dashboard at `/setup` works on desktop and mobile browsers. It can:
+Open that exact address on a device connected to the same Tailscale network. Do not share it.
 
-- show safe configuration status without returning stored keys;
-- save the Nuvio-facing URL and a TMDb v3 key;
-- open the dedicated MovieBoxPro login window and check authentication;
-- reveal and copy the protected Nuvio manifest URL on demand;
-- link to the private noVNC desktop in Docker deployments.
+On the setup page:
 
-The dashboard requires `COMPANION_KEY`. Never expose it or port `43110` to the public internet.
+1. Enter your TMDb v3 API key and save.
+2. Select **Open server desktop** and enter the generated desktop password.
+3. Return to the setup page and select **Open login window**.
+4. In the server desktop, use MovieBoxPro's QR/code login and approve it from your own account.
+5. Return to the setup page and select **Check status**.
+6. When MovieBoxPro shows as connected, reveal and copy the Nuvio installation URL.
 
-Using Proxmox? Follow the [Proxmox deployment runbook](docs/PROXMOX.md).
+Never paste a MovieBoxPro password, login code, cookie, or companion key into an issue or chat.
 
-## License
+### 4. Add it to Nuvio
 
-MIT. This project is an unofficial interoperability tool and is not affiliated with MovieBoxPro, Nuvio, or TMDb.
+In Nuvio's web dashboard:
 
-See [CHANGELOG.md](CHANGELOG.md) for release history.
+1. Open the plugin/provider repository settings.
+2. Add the private installation URL copied from the companion dashboard.
+3. Refresh plugins on the Pixel and Android TV.
+4. Confirm Tailscale is connected on each device.
+5. Test a movie and a TV episode.
 
-## Tests
+The plugin URL points to your server, not GitHub. Every user needs their own running companion and authorized MovieBoxPro session.
+
+## Updating
+
+Your login, settings, and browser profile live in the persistent Docker volume and survive normal updates.
+
+```sh
+cd nuvio-movieboxpro-companion
+git pull --ff-only
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+To stay on one tested version, add `COMPANION_VERSION=0.2.1` to `.env`. Remove that line or set it to `latest` to follow new releases.
+
+## Quick troubleshooting
+
+Check whether the container is healthy:
+
+```sh
+docker compose -f docker-compose.ghcr.yml ps
+docker compose -f docker-compose.ghcr.yml logs --tail=100 companion
+```
+
+- **Setup page will not open:** confirm Tailscale is connected and `.env` contains the server's Tailscale IP for both `PRIVATE_BIND_IP` and `COMPANION_PUBLIC_URL`.
+- **MovieBoxPro is disconnected:** reopen the server desktop, select **Open login window**, and complete code login again.
+- **Nuvio keeps loading:** verify the companion shows `healthy`, MovieBoxPro status is connected, and Tailscale is active on the Nuvio device.
+- **Android TV does not show the provider:** refresh Nuvio plugins and restart Nuvio after confirming the TV can reach the setup page through Tailscale.
+- **Container will not start after a power loss:** make sure only one companion container uses the persistent volume, then inspect the logs for a browser profile-lock message.
+
+For detailed instructions, see:
+
+- [Docker and Tailscale guide](docs/DOCKER_TAILSCALE.md)
+- [Proxmox deployment guide](docs/PROXMOX.md)
+- [Continuous-running and security notes](docs/ALWAYS_ON.md)
+
+## Mac-only setup
+
+Use this only when Nuvio will connect to a Mac that remains powered on.
+
+```sh
+npm install
+npm run init:lan
+npm start
+```
+
+In a second terminal, run `npm run setup-url`, open the private address it prints, and follow the same guided setup page. Node.js 20 or newer is required.
+
+## How it stays private
+
+- `.env` and the browser profile are excluded from Git.
+- MovieBoxPro login happens on the official site in a dedicated persistent browser profile.
+- The service does not extract, return, or log Google tokens or MovieBoxPro cookies.
+- Stream requests require a long random companion key.
+- Playback responses are not cached, and signed playback links are generated on demand.
+- Docker publishes the dashboard and browser desktop only on the exact private IP in `.env`.
+
+Never expose ports `43110`, `5900`, or `6080` to the public internet. Do not use Tailscale Funnel or a public reverse proxy for this service.
+
+## For contributors
+
+The source-based `docker-compose.yml` builds locally. Release users should use `docker-compose.ghcr.yml` with the public package at `ghcr.io/saappleg/nuvio-movieboxpro-companion`.
 
 ```sh
 npm test
 ```
 
-## Prototype limitations
+The repository is safe to publish only while `.env`, browser profiles, generated provider responses, HAR files, cookies, active login codes, and real TMDb credentials remain uncommitted.
 
-- MovieBoxPro web sessions can expire; revisit `/login` to renew the dedicated profile.
-- MovieBoxPro is an undocumented private interface and response fields may change.
-- TV episode JSON needs validation against a real capture.
-- Search matching uses title, media type, year, and runtime because search results do not expose TMDb/IMDb IDs.
-- The initial detail-page source-ID parser may need adjustment after testing against additional titles.
+## Current limitations
+
+- MovieBoxPro uses an undocumented private web interface and can change it without notice.
+- MovieBoxPro sessions expire and occasionally require code login again.
+- Search matching uses title, media type, year, and runtime because search results do not expose stable TMDb/IMDb mappings.
+
+MIT licensed. This project is not affiliated with MovieBoxPro, Nuvio, or TMDb. See [CHANGELOG.md](CHANGELOG.md) for release history.
