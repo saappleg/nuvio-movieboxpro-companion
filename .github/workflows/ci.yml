@@ -28,6 +28,10 @@ jobs:
           node --check scripts/setup-url.mjs
           bash -n docker/entrypoint.sh
           bash -n scripts/docker-setup.sh
+          bash -n scripts/nuvio-companion
+          bash -n ct/nuviomovieboxprocompanion.sh
+          bash -n install/nuviomovieboxprocompanion-install.sh
+          node -e "JSON.parse(require('fs').readFileSync('json/nuviomovieboxprocompanion.json'))"
       - name: Reject common committed secrets
         run: |
           if grep -RIE --exclude-dir=.git --exclude-dir=node_modules --exclude=package-lock.json \

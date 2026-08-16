@@ -1,120 +1,103 @@
-# Proxmox deployment runbook
+# Proxmox VE one-click installation
 
-Use a dedicated Debian QEMU virtual machine for this companion. Proxmox recommends running Docker application containers inside a QEMU VM rather than nesting Docker inside an LXC container. The VM provides stronger isolation and avoids LXC/AppArmor, Chromium sandbox, and Docker nesting problems.
+This is the simplest always-on deployment. The installer creates an **unprivileged Debian 13 LXC** and installs the companion directly inside it. It does not install Docker or change another container.
 
-## Recommended VM
+## Before you start
 
-- Guest OS: Debian 12 or 13, 64-bit
-- CPU: 2 virtual cores, host CPU type when migration compatibility is not required
-- Memory: 4 GB RAM; 2 GB minimum
-- Disk: 32 GB, with discard/TRIM enabled when supported
-- Network: VirtIO adapter attached to the normal LAN bridge
-- QEMU Guest Agent: enabled in Proxmox and installed in the guest
-- Start at boot: enabled
-- Start/shutdown order: after routing and DNS services; before nonessential guests
+You need:
 
-The browser profile is small, but Chromium benefits from memory and shared-memory headroom. The Compose configuration allocates a 1 GB `/dev/shm` area inside the container.
+- a working Proxmox VE host with internet access;
+- 2 CPU cores, 4 GB RAM, and about 16 GB of storage;
+- your own authorized MovieBoxPro account;
+- a free [TMDb API key](https://www.themoviedb.org/settings/api);
+- a trusted home network or private VPN.
 
-## 1. Create the VM
+Do not forward ports 43110 or 6080 through your router.
 
-1. Upload a current Debian netinst ISO to Proxmox storage.
-2. Select **Create VM** and install a minimal Debian system with an SSH server.
-3. Apply the resources above.
-4. Give the VM a DHCP reservation on the home router for predictable administration.
-5. In **VM → Options**, enable **Start at boot** and the QEMU Guest Agent.
+## 1. Create the LXC
 
-Inside the VM:
+Open **Proxmox → your node → Shell**, paste this command, and press Enter:
 
 ```sh
-sudo apt update
-sudo apt full-upgrade -y
-sudo apt install -y ca-certificates curl git qemu-guest-agent
-sudo systemctl enable --now qemu-guest-agent
+curl -fsSL https://raw.githubusercontent.com/community-scripts/core/main/tools/run.sh |
+  bash -s -- https://raw.githubusercontent.com/saappleg/nuvio-movieboxpro-companion/main ct/nuviomovieboxprocompanion.sh
 ```
 
-## 2. Install Docker
+The normal Community Scripts setup screen opens. The defaults are suitable for most homes. Choose Advanced Settings only if you need a static IP, different storage, or different resources.
 
-Install Docker Engine and the Compose plugin using Docker's official Debian instructions. Verify:
+This preview command uses the official Community Scripts engine and this repository's submission-ready installer. Once accepted upstream, the companion can be selected directly from the Community Scripts catalog.
+
+## 2. Get the private setup link
+
+When installation finishes, select the new LXC in Proxmox and open **Console**. Run:
 
 ```sh
-docker --version
-docker compose version
+nuvio-companion setup-url
 ```
 
-Add the administration user to the Docker group only if accepting that membership effectively grants root-level control of the VM. Otherwise, run Docker commands with `sudo`.
+Open the address it prints on a device that can reach the LXC. The long key in that address is private; do not share it or put it in screenshots.
 
-## 3. Install Tailscale on the VM
-
-Follow Tailscale's Debian installation instructions, then connect the VM to the same tailnet as the Pixel and Android TV:
+If you need the browser-desktop password, run:
 
 ```sh
-sudo tailscale up
-tailscale ip -4
+nuvio-companion desktop-password
 ```
 
-Record the VM's stable `100.x.y.z` address. Tailscale should run on the Debian VM, not inside the companion container. This keeps networking and upgrades simple.
+## 3. Connect MovieBoxPro and Nuvio
 
-## 4. Deploy the companion
+On the guided setup page:
+
+1. Enter your TMDb v3 API key and save it.
+2. Select **Open server desktop** and enter the desktop password.
+3. Return to setup and select **Open login window**.
+4. Complete MovieBoxPro's official QR/code login in the browser desktop.
+5. Select **Check status**.
+6. Copy the protected Nuvio installation URL and add it in Nuvio.
+
+Never paste a MovieBoxPro password, active login code, session cookie, or companion key into an issue or chat.
+
+## Everyday management
+
+Run these commands in the LXC console:
 
 ```sh
-git clone https://github.com/saappleg/nuvio-movieboxpro-companion.git
-cd nuvio-movieboxpro-companion
+nuvio-companion status
+nuvio-companion logs
+nuvio-companion restart
+nuvio-companion desktop-url
 ```
 
-Use the guided initializer:
+The services start automatically after the LXC or Proxmox host reboots.
+
+## Updating
+
+Run the same Community Script again and select the existing container when prompted to update it. The updater preserves:
+
+- the MovieBoxPro browser profile and login session;
+- the companion and plugin keys;
+- the TMDb setting;
+- the browser-desktop password.
+
+Review release notes before updating. Proxmox snapshots and backups contain sensitive browser-session data and should be protected.
+
+## Network access
+
+The default address uses the LXC's LAN IP. That works while your Pixel and Android TV are on the same trusted home network. For access away from home, add the LXC to a private VPN such as Tailscale; do not use a public reverse proxy, Tailscale Funnel, or router port forwarding.
+
+If the LXC's IP changes, give it a DHCP reservation or static address. Then edit `COMPANION_PUBLIC_URL` in `/etc/nuvio-movieboxpro-companion/companion.env` and restart the service:
 
 ```sh
-chmod +x scripts/docker-setup.sh
-./scripts/docker-setup.sh
+nuvio-companion restart
 ```
 
-It detects or asks for the VM's Tailscale IP, creates fresh private keys and a desktop password, and prints the dashboard address. If you prefer manual configuration, copy `.env.example` to `.env` and follow [the Docker and Tailscale guide](DOCKER_TAILSCALE.md).
+## Removing it
 
-Start the service:
+The companion is isolated in its own LXC. To uninstall it, back up anything you need and delete that LXC from Proxmox. This removes its browser profile, account session, settings, and private keys.
 
-```sh
-docker compose -f docker-compose.ghcr.yml pull
-docker compose -f docker-compose.ghcr.yml up -d
-docker compose -f docker-compose.ghcr.yml ps
-docker compose -f docker-compose.ghcr.yml logs --tail=100 companion
-```
+## Troubleshooting
 
-Use the noVNC address on port `6080` to complete MovieBoxPro login, then replace the Mac-local plugin URL in Nuvio with the VM's protected manifest URL.
-
-The easiest route is the guided dashboard at `http://VM_TAILSCALE_IP:43110/setup?key=YOUR_COMPANION_KEY`. It links to noVNC, controls the login window, checks session status, and provides the protected Nuvio installation URL.
-
-## 5. Proxmox and network security
-
-- Do not open ports `43110`, `5900`, or `6080` on the router.
-- Do not attach a public IP to the VM.
-- The Compose file publishes `43110` and `6080` only on `PRIVATE_BIND_IP`.
-- Port `5900` remains inside the container and is never published.
-- Restrict the Proxmox host and VM administration interfaces separately from application access.
-- Use Tailscale access rules to allow only the user's devices to reach the two published ports.
-- Keep Debian, Docker, Tailscale, and the container image updated.
-
-## 6. Backups and recovery
-
-Proxmox VM backups include the Docker named volume that contains the persistent browser profile. Treat those backups as sensitive account data and store them only in protected backup storage.
-
-For the cleanest backup, briefly stop the container, run the Proxmox backup, then start it again:
-
-```sh
-docker compose stop
-# Run or wait for the scheduled Proxmox backup.
-docker compose start
-```
-
-A live VM backup is convenient but may capture Chromium while it is writing profile data. After restoring, check the companion `/status` endpoint and repeat MovieBoxPro code login if necessary.
-
-## 7. Updating
-
-```sh
-cd nuvio-movieboxpro-companion
-git pull --ff-only
-docker compose -f docker-compose.ghcr.yml pull
-docker compose -f docker-compose.ghcr.yml up -d
-docker image prune
-```
-
-Review release notes before updating. Never use `git reset --hard` on a deployment containing local changes.
+- **Setup page does not open:** confirm the LXC is running and your device can reach its LAN IP.
+- **MovieBoxPro is disconnected:** open the browser desktop and repeat the official code login.
+- **Nuvio spins forever:** run `nuvio-companion status`, then `nuvio-companion logs` and verify the Nuvio device can reach port 43110.
+- **Browser desktop is blank:** run `nuvio-companion restart`, wait about ten seconds, and reload it.
+- **Android TV does not show the provider:** refresh Nuvio's plugins and restart Nuvio after verifying the TV can open the companion's address.

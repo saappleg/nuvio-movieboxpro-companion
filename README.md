@@ -4,13 +4,35 @@ Use your own authorized MovieBoxPro account as a private Nuvio stream source. Th
 
 This is an unofficial interoperability project. It does not bypass MovieBoxPro login, VIP checks, DRM, or access controls.
 
-## Recommended setup: Proxmox or another Docker server
+## Easiest setup: Proxmox VE LXC
+
+The Proxmox installer creates a lightweight Debian 13 container, installs Chromium and the companion, generates private credentials, starts everything at boot, and supports one-command updates. Docker is not required.
+
+Run this in the **Proxmox VE host shell**:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/community-scripts/core/main/tools/run.sh |
+  bash -s -- https://raw.githubusercontent.com/saappleg/nuvio-movieboxpro-companion/main ct/nuviomovieboxprocompanion.sh
+```
+
+Until the script is accepted into the official Community Scripts catalog, this command runs the submission-ready files from this repository with the official Community Scripts engine. Review scripts before running them as root.
+
+After installation, open the new LXC's console and run:
+
+```sh
+nuvio-companion setup-url
+nuvio-companion desktop-password
+```
+
+Open the setup URL, add your TMDb key, then use the browser desktop to complete MovieBoxPro's official QR/code login. See the [Proxmox guide](docs/PROXMOX.md) for the complete beginner walkthrough.
+
+## Docker server setup
 
 This is the easiest setup and keeps the companion available when your Mac is off. It works on AMD64 and ARM64 Linux servers.
 
 ### What you need
 
-- A Linux server or Proxmox Debian VM with Docker and Docker Compose
+- A Linux server with Docker and Docker Compose
 - Tailscale on the server, phone, and Android TV
 - Your own MovieBoxPro account
 - A free [TMDb API key](https://www.themoviedb.org/settings/api)
@@ -84,7 +106,7 @@ docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-To stay on one tested version, add `COMPANION_VERSION=0.2.1` to `.env`. Remove that line or set it to `latest` to follow new releases.
+To stay on one tested version, add `COMPANION_VERSION=0.3.0` to `.env`. Remove that line or set it to `latest` to follow new releases.
 
 ## Quick troubleshooting
 
@@ -133,6 +155,8 @@ Never expose ports `43110`, `5900`, or `6080` to the public internet. Do not use
 ## For contributors
 
 The source-based `docker-compose.yml` builds locally. Release users should use `docker-compose.ghcr.yml` with the public package at `ghcr.io/saappleg/nuvio-movieboxpro-companion`.
+
+The `ct/`, `install/`, and `json/` files follow the current Proxmox VE Community Scripts contribution format. Test the installer on a non-production Proxmox host before proposing it upstream.
 
 ```sh
 npm test

@@ -1,0 +1,48 @@
+{
+  "name": "Nuvio MovieBoxPro Companion",
+  "slug": "nuviomovieboxprocompanion",
+  "categories": [13],
+  "date_created": "2026-08-16",
+  "type": "ct",
+  "updateable": true,
+  "privileged": false,
+  "architectures": ["amd64", "arm64"],
+  "interface_port": 43110,
+  "documentation": "https://github.com/saappleg/nuvio-movieboxpro-companion/blob/main/docs/PROXMOX.md",
+  "website": "https://github.com/saappleg/nuvio-movieboxpro-companion",
+  "repository": "https://github.com/saappleg/nuvio-movieboxpro-companion",
+  "logo": "https://raw.githubusercontent.com/saappleg/nuvio-movieboxpro-companion/main/docs/assets/logo.svg",
+  "description": "A private, self-hosted browser companion that lets Nuvio request fresh playback links through a user's own authorized MovieBoxPro account.",
+  "install_methods": [
+    {
+      "type": "default",
+      "script": "ct/nuviomovieboxprocompanion.sh",
+      "config_path": "/etc/nuvio-movieboxpro-companion/companion.env",
+      "resources": {
+        "cpu": 2,
+        "ram": 4096,
+        "hdd": 16,
+        "os": "Debian",
+        "version": "13"
+      }
+    }
+  ],
+  "default_credentials": {
+    "username": null,
+    "password": null
+  },
+  "notes": [
+    {
+      "text": "After installation, run 'nuvio-companion setup-url' in the LXC console and open the private link to finish setup.",
+      "type": "info"
+    },
+    {
+      "text": "A free TMDb API key and an authorized MovieBoxPro account are required. Login occurs on MovieBoxPro's official site through the private browser desktop.",
+      "type": "info"
+    },
+    {
+      "text": "Keep ports 43110 and 6080 on a trusted LAN or private VPN. Never publish them directly to the internet.",
+      "type": "warning"
+    }
+  ]
+}
