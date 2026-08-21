@@ -20,20 +20,18 @@ function response(data) {
   return { ok: true, json: async () => data };
 }
 
-test("catalog manifest exposes series and movie catalogs matching package version", () => {
+test("catalog manifest exposes series and movie catalogs in requested order", () => {
   const manifest = catalogManifest(APP_VERSION, "private-key");
   assert.equal(manifest.version, APP_VERSION);
   assert.deepEqual(manifest.types, ["movie", "series"]);
   assert.deepEqual(manifest.idPrefixes, ["tmdb:", "tt"]);
   assert.deepEqual(manifest.catalogs.map((item) => item.id), [
-    "new-movies",
-    "this-week-movies",
-    "recommended-movies",
-    "airing-today",
-    "this-week",
-    "new-returning",
+    "now-playing",
+    "library-today",
     "new-series",
-    "recommended"
+    "recommended-series",
+    "new-movies",
+    "recommended-movies"
   ]);
 });
 
@@ -100,6 +98,26 @@ test("loadMeta resolves IMDb IDs and formats episode IDs with IMDb prefix", asyn
   assert.equal(imdbMeta.videos[0].id, "tt27799594:1:1");
 });
 
+test("library-today returns airing shows when present and empty array when none airing", async () => {
+  const seeds = [{ id: 101, name: "Active Library Show" }, { id: 102, name: "Quiet Show" }];
+  const metas = await loadCatalog("library-today", seeds, async (url) => {
+    if (url.pathname.includes("tv/airing_today")) {
+      return response({ results: [{ id: 101, name: "Active Library Show", first_air_date: "2026-08-21" }] });
+    }
+    return response({ id: 102, name: "Quiet Show" });
+  }, new Date("2026-08-21T12:00:00Z"), "series");
+
+  assert.equal(metas.length, 1);
+  assert.equal(metas[0].name, "Active Library Show");
+
+  const emptyMetas = await loadCatalog("library-today", [{ id: 999, name: "Non-airing Show" }], async (url) => {
+    if (url.pathname.includes("tv/airing_today")) return response({ results: [] });
+    return response({ id: 999, name: "Non-airing Show" });
+  }, new Date("2026-08-21T12:00:00Z"), "series");
+
+  assert.deepEqual(emptyMetas, []);
+});
+
 test("show names resolve to private recommendation seeds", async () => {
   const seeds = await resolveSeedShows("King of the Hill, 456", async (url) => {
     if (url.pathname.includes("search/tv")) return response({ results: [{ id: 111, name: "King of the Hill" }] });
@@ -120,7 +138,7 @@ test("movie names resolve to movie recommendation seeds", async () => {
 
 test("recommendations combine seeds, rank overlaps, and exclude seed shows/movies", async () => {
   const seeds = [{ id: 1, name: "One" }, { id: 2, name: "Two" }];
-  const metas = await loadCatalog("recommended", seeds, async (url) => {
+  const metas = await loadCatalog("recommended-series", seeds, async (url) => {
     const first = url.pathname.includes("tv/1/");
     return response({ results: first
       ? [{ id: 9, name: "Shared", popularity: 2 }, { id: 1, name: "Seed" }]
@@ -130,7 +148,7 @@ test("recommendations combine seeds, rank overlaps, and exclude seed shows/movie
   assert.deepEqual(metas.map((item) => item.name), ["Shared", "Other"]);
 });
 
-test("movie recommendations load correctly", async () => {
+test("movie recommendations and now-playing load correctly", async () => {
   const movieSeeds = [{ id: 550, name: "Fight Club" }];
   const metas = await loadCatalog("recommended-movies", movieSeeds, async (url) => {
     return response({ results: [{ id: 680, title: "Pulp Fiction", popularity: 50, release_date: "1994-09-10" }] });
@@ -138,6 +156,12 @@ test("movie recommendations load correctly", async () => {
   assert.equal(metas.length, 1);
   assert.equal(metas[0].name, "Pulp Fiction");
   assert.equal(metas[0].type, "movie");
+
+  const nowPlaying = await loadCatalog("now-playing", [], async () => {
+    return response({ results: [{ id: 550, title: "Fight Club", release_date: "1999-10-15" }] });
+  }, new Date(), "movie");
+  assert.equal(nowPlaying.length, 1);
+  assert.equal(nowPlaying[0].name, "Fight Club");
 });
 
 test("metadata route accepts Nuvio's encoded TMDb IDs and IMDb IDs for series and movies", () => {
