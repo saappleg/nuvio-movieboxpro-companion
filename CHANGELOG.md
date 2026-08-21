@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.12
+
+- Support IMDb IDs (e.g. `tt...`) in metadata lookups and add-on manifest `idPrefixes`.
+- Auto-resolve IMDb IDs to TMDb for full season and episode breakdowns and stream resolution.
+
 ## 0.3.11
 
 - Populate complete season and episode breakdown (`videos` array) for TV Series metadata.
