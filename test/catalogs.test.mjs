@@ -24,6 +24,7 @@ test("catalog manifest exposes series and movie catalogs matching package versio
   const manifest = catalogManifest(APP_VERSION, "private-key");
   assert.equal(manifest.version, APP_VERSION);
   assert.deepEqual(manifest.types, ["movie", "series"]);
+  assert.deepEqual(manifest.idPrefixes, ["tmdb:", "tt"]);
   assert.deepEqual(manifest.catalogs.map((item) => item.id), [
     "new-movies",
     "this-week-movies",
@@ -80,6 +81,25 @@ test("loadMeta populates episode videos array for series and single meta for mov
   assert.equal(movieMeta.videos, undefined);
 });
 
+test("loadMeta resolves IMDb IDs and formats episode IDs with IMDb prefix", async () => {
+  const imdbMeta = await loadMeta("tt27799594", async (url) => {
+    if (url.pathname.includes("find/tt27799594")) {
+      return response({ tv_results: [{ id: 226749, name: "The Librarians: The Next Chapter" }] });
+    }
+    if (url.pathname.includes("tv/226749/season/1")) {
+      return response({
+        episodes: [{ episode_number: 1, name: "Pilot", air_date: "2025-05-25", season_number: 1 }]
+      });
+    }
+    return response({ id: 226749, name: "The Librarians: The Next Chapter", seasons: [{ season_number: 1, episode_count: 1 }] });
+  }, "series");
+
+  assert.equal(imdbMeta.id, "tt27799594");
+  assert.equal(imdbMeta.name, "The Librarians: The Next Chapter");
+  assert.equal(imdbMeta.videos.length, 1);
+  assert.equal(imdbMeta.videos[0].id, "tt27799594:1:1");
+});
+
 test("show names resolve to private recommendation seeds", async () => {
   const seeds = await resolveSeedShows("King of the Hill, 456", async (url) => {
     if (url.pathname.includes("search/tv")) return response({ results: [{ id: 111, name: "King of the Hill" }] });
@@ -120,7 +140,7 @@ test("movie recommendations load correctly", async () => {
   assert.equal(metas[0].type, "movie");
 });
 
-test("metadata route accepts Nuvio's encoded TMDb IDs for series and movies", () => {
+test("metadata route accepts Nuvio's encoded TMDb IDs and IMDb IDs for series and movies", () => {
   assert.deepEqual(
     matchCatalogRequestPath("/catalog/private-key/meta/series/tmdb%3A123.json"),
     { key: "private-key", resource: "meta/series/tmdb%3A123.json", mediaType: "series", catalogId: undefined, metaId: "123" }
@@ -130,8 +150,16 @@ test("metadata route accepts Nuvio's encoded TMDb IDs for series and movies", ()
     { key: "private-key", resource: "meta/movie/tmdb%3A456.json", mediaType: "movie", catalogId: undefined, metaId: "456" }
   );
   assert.deepEqual(
+    matchCatalogRequestPath("/catalog/private-key/meta/series/tt27799594.json"),
+    { key: "private-key", resource: "meta/series/tt27799594.json", mediaType: "series", catalogId: undefined, metaId: "tt27799594" }
+  );
+  assert.deepEqual(
+    matchCatalogRequestPath("/catalog/private-key/meta/series/imdb%3Att27799594.json"),
+    { key: "private-key", resource: "meta/series/imdb%3Att27799594.json", mediaType: "series", catalogId: undefined, metaId: "tt27799594" }
+  );
+  assert.deepEqual(
     matchCatalogRequestPath("/catalog/private-key/catalog/movie/new-movies.json"),
     { key: "private-key", resource: "catalog/movie/new-movies.json", mediaType: "movie", catalogId: "new-movies", extra: undefined }
   );
-  assert.equal(matchCatalogRequestPath("/catalog/private-key/meta/series/imdb%3Att123.json"), undefined);
+  assert.equal(matchCatalogRequestPath("/catalog/private-key/meta/series/invalid_id.json"), undefined);
 });

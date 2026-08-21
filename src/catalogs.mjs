@@ -45,7 +45,7 @@ export function catalogManifest(version, key) {
     description: "Calendar releases, new movies & series, and personalized recommendations powered by TMDb and Nuvio Cloud",
     resources: ["catalog", "meta"],
     types: ["movie", "series"],
-    idPrefixes: ["tmdb:"],
+    idPrefixes: ["tmdb:", "tt"],
     catalogs: [
       // Movies Catalogs
       {
@@ -190,10 +190,13 @@ export function matchCatalogRequestPath(pathname) {
     const resource = metaMatch[2];
     const rawType = metaMatch[3].toLowerCase();
     const mediaType = rawType === "movie" ? "movie" : "series";
-    let rawMetaId = decodeURIComponent(metaMatch[4]).replace(/\.json$/i, "");
-    rawMetaId = rawMetaId.replace(/^tmdb:/i, "").trim();
-    if (!/^\d+$/.test(rawMetaId)) return undefined;
-    return { key, resource: resource.endsWith(".json") ? resource : `${resource}.json`, mediaType, catalogId: undefined, metaId: rawMetaId };
+    let rawMetaId = decodeURIComponent(metaMatch[4]).replace(/\.json$/i, "").trim();
+    rawMetaId = rawMetaId.replace(/^imdb:/i, "").trim();
+    const imdbMatch = rawMetaId.match(/^tt\d+$/i);
+    const tmdbMatch = rawMetaId.replace(/^tmdb:/i, "").match(/^\d+$/);
+    if (!imdbMatch && !tmdbMatch) return undefined;
+    const metaId = imdbMatch ? imdbMatch[0].toLowerCase() : tmdbMatch[0];
+    return { key, resource: resource.endsWith(".json") ? resource : `${resource}.json`, mediaType, catalogId: undefined, metaId };
   }
 
   return undefined;
@@ -264,12 +267,25 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
   return uniqueMetas(results, normalizedType).slice(0, 40);
 }
 
-export async function loadMeta(tmdbId, fetchImpl = fetch, mediaType = "series") {
+export async function loadMeta(rawId, fetchImpl = fetch, mediaType = "series") {
   const isMovie = mediaType === "movie";
+  let tmdbId = rawId;
+  const isImdb = typeof rawId === "string" && /^tt\d+$/i.test(rawId);
+
+  if (isImdb) {
+    const findData = await tmdb(`find/${rawId}`, { external_source: "imdb_id" }, fetchImpl);
+    const match = isMovie ? findData.movie_results?.[0] : findData.tv_results?.[0];
+    if (!match?.id) throw new Error(`${isMovie ? "Movie" : "Series"} with IMDb ID ${rawId} was not found`);
+    tmdbId = match.id;
+  }
+
   const path = isMovie ? `movie/${Number(tmdbId)}` : `tv/${Number(tmdbId)}`;
   const data = await tmdb(path, { language: "en-US" }, fetchImpl);
   const meta = toMeta(data, isMovie ? "movie" : "series");
   if (!meta) throw new Error(`${isMovie ? "Movie" : "Series"} metadata was not found`);
+
+  // Preserve the requested ID format (e.g. tt27799594 or tmdb:123)
+  if (isImdb) meta.id = String(rawId).toLowerCase();
   meta.genres = (data.genres || []).map((genre) => genre.name).filter(Boolean);
   meta.status = data.status || undefined;
   if (data.runtime) meta.runtime = `${data.runtime} min`;
@@ -296,8 +312,9 @@ export async function loadMeta(tmdbId, fetchImpl = fetch, mediaType = "series") 
           const sNum = Number(ep.season_number ?? s.season_number);
           const epNum = Number(ep.episode_number);
           if (!sNum || !epNum) continue;
+          const videoId = isImdb ? `${rawId.toLowerCase()}:${sNum}:${epNum}` : `tmdb:${tmdbId}:${sNum}:${epNum}`;
           videos.push({
-            id: `tmdb:${tmdbId}:${sNum}:${epNum}`,
+            id: videoId,
             title: ep.name || `Episode ${epNum}`,
             name: ep.name || `Episode ${epNum}`,
             season: sNum,
@@ -313,8 +330,9 @@ export async function loadMeta(tmdbId, fetchImpl = fetch, mediaType = "series") 
       } else {
         const count = Number(s.episode_count) || 0;
         for (let epNum = 1; epNum <= count; epNum++) {
+          const videoId = isImdb ? `${rawId.toLowerCase()}:${s.season_number}:${epNum}` : `tmdb:${tmdbId}:${s.season_number}:${epNum}`;
           videos.push({
-            id: `tmdb:${tmdbId}:${s.season_number}:${epNum}`,
+            id: videoId,
             title: `Season ${s.season_number} Episode ${epNum}`,
             name: `Season ${s.season_number} Episode ${epNum}`,
             season: Number(s.season_number),
