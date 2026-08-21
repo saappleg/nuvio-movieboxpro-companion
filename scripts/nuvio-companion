@@ -14,6 +14,13 @@ read_setting() {
 }
 
 case "${1:-help}" in
+version)
+  if [[ -f /opt/nuvio-movieboxpro-companion/package.json ]]; then
+    node -e 'console.log(JSON.parse(require("fs").readFileSync("/opt/nuvio-movieboxpro-companion/package.json")).version)' 2>/dev/null || cat /opt/nuvio-movieboxpro-companion_version.txt 2>/dev/null || echo "Unknown"
+  else
+    cat /opt/nuvio-movieboxpro-companion_version.txt 2>/dev/null || echo "Unknown"
+  fi
+  ;;
 setup-url)
   public_url="$(read_setting COMPANION_PUBLIC_URL)"
   companion_key="$(read_setting COMPANION_KEY)"
@@ -41,6 +48,7 @@ restart)
 Usage: nuvio-companion COMMAND
 
 Commands:
+  version           Show installed companion version
   setup-url         Show the private guided-setup URL
   desktop-url       Show the browser-desktop URL
   desktop-password  Show the browser-desktop password
