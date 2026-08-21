@@ -12,7 +12,21 @@ import {
   parseSearchResults,
   streamsFromPlayer
 } from "./parsers.mjs";
-import { catalogManifest, loadCatalog, loadMeta, matchCatalogRequestPath, parseSeeds, resolveSeedShows } from "./catalogs.mjs";
+import {
+  catalogManifest,
+  loadCatalog,
+  loadMeta,
+  matchCatalogRequestPath,
+  parseSeeds,
+  parseMovieSeeds,
+  resolveSeedShows,
+  resolveSeedMovies
+} from "./catalogs.mjs";
+import {
+  loginNuvioCloud,
+  fetchNuvioProfiles,
+  syncNuvioCloudLibrary
+} from "./nuvio-cloud.mjs";
 
 const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const APP_VERSION = String(packageMetadata.version);
@@ -24,7 +38,14 @@ const PERSISTED_KEYS = [
   "TMDB_BEARER_TOKEN",
   "COMPANION_PUBLIC_URL",
   "STREAM_TIMEOUT_MS",
-  "RECOMMENDATION_SEEDS"
+  "RECOMMENDATION_SEEDS",
+  "MOVIE_RECOMMENDATION_SEEDS",
+  "NUVIO_CLOUD_EMAIL",
+  "NUVIO_CLOUD_TOKEN",
+  "NUVIO_CLOUD_PROFILE_ID",
+  "NUVIO_CLOUD_PROFILE_NAME",
+  "NUVIO_CLOUD_LAST_SYNC",
+  "NUVIO_CLOUD_URL"
 ];
 
 async function loadEnv() {
@@ -71,7 +92,7 @@ function sendHtml(res, status, html, extraHeaders = {}) {
   res.writeHead(status, {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
-    "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https://image.tmdb.org; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     ...extraHeaders
@@ -79,7 +100,7 @@ function sendHtml(res, status, html, extraHeaders = {}) {
   res.end(html);
 }
 
-async function readJsonBody(req, limit = 16384) {
+async function readJsonBody(req, limit = 32768) {
   let body = "";
   for await (const chunk of req) {
     body += chunk;
@@ -321,6 +342,8 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/health") return sendJson(res, 200, { ok: true, service: "movieboxpro-companion" });
     const suppliedKey = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
     const queryKey = url.searchParams.get("key") || "";
+
+    // 1. Guided Setup Dashboard
     if (url.pathname === "/setup" && req.method === "GET") {
       if (queryKey && process.env.COMPANION_KEY && queryKey === process.env.COMPANION_KEY) {
         res.writeHead(303, {
@@ -335,8 +358,11 @@ const server = http.createServer(async (req, res) => {
       }
       return sendHtml(res, 200, setupPage());
     }
+
+    // 2. Setup APIs
     if (url.pathname.startsWith("/api/setup/")) {
       if (!setupAuthorized(req, url)) return sendJson(res, 401, { error: "Unauthorized" });
+
       if (url.pathname === "/api/setup/state" && req.method === "GET") {
         return sendJson(res, 200, {
           service: "ready",
@@ -347,27 +373,112 @@ const server = http.createServer(async (req, res) => {
           companionKeyConfigured: Boolean(process.env.COMPANION_KEY),
           pluginKeyConfigured: Boolean(process.env.PLUGIN_SETUP_KEY),
           recommendationSeeds: parseSeeds(),
+          movieRecommendationSeeds: parseMovieSeeds(),
+          nuvioCloud: {
+            connected: Boolean(process.env.NUVIO_CLOUD_TOKEN || process.env.NUVIO_CLOUD_EMAIL),
+            email: process.env.NUVIO_CLOUD_EMAIL || "",
+            profileId: process.env.NUVIO_CLOUD_PROFILE_ID || "1",
+            profileName: process.env.NUVIO_CLOUD_PROFILE_NAME || "Default Profile",
+            lastSync: process.env.NUVIO_CLOUD_LAST_SYNC || null
+          },
           docker: BROWSER_CHANNEL === "chromium",
           noVncUrl: `http://${String(req.headers.host || "localhost").split(":")[0]}:6080/vnc.html`
         });
       }
+
       if (url.pathname === "/api/setup/moviebox-status" && req.method === "GET") {
         return sendJson(res, 200, await serializeBrowserWork(browserSessionStatus));
       }
+
       if (url.pathname === "/api/setup/login" && req.method === "POST") {
         await serializeBrowserWork(openLoginWindow);
         return sendJson(res, 200, { ok: true });
       }
+
       if (url.pathname === "/api/setup/plugin-url" && req.method === "GET") {
         if (!process.env.PLUGIN_SETUP_KEY) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
         return sendJson(res, 200, {
           url: privateRepositoryUrl(publicUrl(), process.env.PLUGIN_SETUP_KEY)
         });
       }
+
       if (url.pathname === "/api/setup/catalog-url" && req.method === "GET") {
         if (!process.env.PLUGIN_SETUP_KEY) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
         return sendJson(res, 200, { url: `${publicUrl()}/catalog/${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}/manifest.json` });
       }
+
+      // Nuvio Cloud Login
+      if (url.pathname === "/api/setup/nuvio-cloud/login" && req.method === "POST") {
+        requireConfig();
+        const body = await readJsonBody(req);
+        const { email, password, cloudUrl } = body;
+        if (!email || !password) return sendJson(res, 400, { error: "Email and password are required" });
+
+        const auth = await loginNuvioCloud(email, password, cloudUrl);
+        const profiles = await fetchNuvioProfiles(auth.accessToken, cloudUrl);
+        const activeProfile = profiles[0] || { id: 1, name: "Default Profile" };
+
+        const syncResult = await syncNuvioCloudLibrary({
+          accessToken: auth.accessToken,
+          profileId: activeProfile.id,
+          cloudUrl
+        });
+
+        await saveEnvValues({
+          NUVIO_CLOUD_EMAIL: email,
+          NUVIO_CLOUD_TOKEN: auth.accessToken,
+          NUVIO_CLOUD_PROFILE_ID: String(activeProfile.id),
+          NUVIO_CLOUD_PROFILE_NAME: activeProfile.name,
+          NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
+          RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
+          MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
+        });
+
+        return sendJson(res, 200, {
+          ok: true,
+          user: auth.user,
+          profiles,
+          activeProfile,
+          syncSummary: syncResult
+        });
+      }
+
+      // Nuvio Cloud Sync Trigger
+      if (url.pathname === "/api/setup/nuvio-cloud/sync" && req.method === "POST") {
+        requireConfig();
+        if (!process.env.NUVIO_CLOUD_TOKEN) {
+          return sendJson(res, 400, { error: "Nuvio Cloud is not connected" });
+        }
+
+        const profileId = process.env.NUVIO_CLOUD_PROFILE_ID || 1;
+        const syncResult = await syncNuvioCloudLibrary({
+          accessToken: process.env.NUVIO_CLOUD_TOKEN,
+          profileId,
+          cloudUrl: process.env.NUVIO_CLOUD_URL
+        });
+
+        await saveEnvValues({
+          NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
+          RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
+          MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
+        });
+
+        return sendJson(res, 200, { ok: true, syncSummary: syncResult });
+      }
+
+      // Nuvio Cloud Disconnect
+      if (url.pathname === "/api/setup/nuvio-cloud/disconnect" && req.method === "POST") {
+        await saveEnvValues({
+          NUVIO_CLOUD_EMAIL: "",
+          NUVIO_CLOUD_TOKEN: "",
+          NUVIO_CLOUD_PROFILE_ID: "",
+          NUVIO_CLOUD_PROFILE_NAME: "",
+          NUVIO_CLOUD_LAST_SYNC: ""
+        });
+        return sendJson(res, 200, { ok: true });
+      }
+
+      // Manual Seeds
       if (url.pathname === "/api/setup/recommendations" && req.method === "POST") {
         requireConfig();
         const seeds = await resolveSeedShows((await readJsonBody(req)).shows);
@@ -375,6 +486,15 @@ const server = http.createServer(async (req, res) => {
         await saveEnvValues({ RECOMMENDATION_SEEDS: JSON.stringify(seeds) });
         return sendJson(res, 200, { ok: true, seeds });
       }
+
+      if (url.pathname === "/api/setup/recommendations/movies" && req.method === "POST") {
+        requireConfig();
+        const seeds = await resolveSeedMovies((await readJsonBody(req)).movies);
+        if (!seeds.length) return sendJson(res, 400, { error: "No matching movies were found" });
+        await saveEnvValues({ MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(seeds) });
+        return sendJson(res, 200, { ok: true, seeds });
+      }
+
       if (url.pathname === "/api/setup/config" && req.method === "POST") {
         const body = await readJsonBody(req);
         const updates = {};
@@ -393,22 +513,34 @@ const server = http.createServer(async (req, res) => {
         await saveEnvValues(updates);
         return sendJson(res, 200, { ok: true, publicUrl: publicUrl(), tmdbConfigured: Boolean(process.env.TMDB_API_KEY) });
       }
+
       if (url.pathname === "/api/setup/logout" && req.method === "POST") {
         res.writeHead(204, { "Set-Cookie": "companion_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0" });
         return res.end();
       }
+
       return sendJson(res, 404, { error: "Not found" });
     }
-    const privateRepository = matchPrivateRepositoryPath(url.pathname);
+
+    // 3. Catalog and Discovery Endpoints
     const catalogRequest = matchCatalogRequestPath(url.pathname);
     if (catalogRequest && req.method === "GET") {
       if (!process.env.PLUGIN_SETUP_KEY || catalogRequest.key !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
       if (catalogRequest.resource === "manifest.json") return sendJson(res, 200, catalogManifest(APP_VERSION, catalogRequest.key));
-      if (catalogRequest.catalogId) return sendJson(res, 200, { metas: await loadCatalog(catalogRequest.catalogId) });
-      if (catalogRequest.metaId) return sendJson(res, 200, { meta: await loadMeta(catalogRequest.metaId) });
+      if (catalogRequest.catalogId) {
+        const isMovie = catalogRequest.mediaType === "movie" || catalogRequest.catalogId.includes("movie");
+        const seeds = isMovie ? parseMovieSeeds() : parseSeeds();
+        return sendJson(res, 200, { metas: await loadCatalog(catalogRequest.catalogId, seeds, fetch, new Date(), catalogRequest.mediaType) });
+      }
+      if (catalogRequest.metaId) {
+        return sendJson(res, 200, { meta: await loadMeta(catalogRequest.metaId, fetch, catalogRequest.mediaType) });
+      }
       res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" });
       return res.end("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'><rect width='128' height='128' rx='24' fill='%2311182a'/><path d='M31 24v14m66-14v14M23 48h82M29 31h70a8 8 0 0 1 8 8v61a8 8 0 0 1-8 8H29a8 8 0 0 1-8-8V39a8 8 0 0 1 8-8z' fill='none' stroke='%237c9cff' stroke-width='9'/></svg>");
     }
+
+    // 4. Provider Repository Endpoints
+    const privateRepository = matchPrivateRepositoryPath(url.pathname);
     if ((url.pathname === "/manifest.json" || privateRepository?.resource === "manifest.json") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
       if (!process.env.PLUGIN_SETUP_KEY || repositoryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
@@ -424,6 +556,8 @@ const server = http.createServer(async (req, res) => {
         .replace("__COMPANION_KEY__", JSON.stringify(process.env.COMPANION_KEY));
       return sendJavaScript(res, source);
     }
+
+    // 5. Browser Session & Login
     if (url.pathname === "/login" && req.method === "GET") {
       if (!process.env.COMPANION_KEY || queryKey !== process.env.COMPANION_KEY) return sendJson(res, 401, { error: "Unauthorized" });
       await serializeBrowserWork(openLoginWindow);
@@ -433,6 +567,8 @@ const server = http.createServer(async (req, res) => {
       if (!process.env.COMPANION_KEY || queryKey !== process.env.COMPANION_KEY) return sendJson(res, 401, { error: "Unauthorized" });
       return sendJson(res, 200, await serializeBrowserWork(browserSessionStatus));
     }
+
+    // 6. Streams API (Requested by Nuvio Scraper)
     if (url.pathname !== "/streams" || req.method !== "GET") return sendJson(res, 404, { error: "Not found" });
 
     requireConfig();
@@ -460,7 +596,6 @@ const server = http.createServer(async (req, res) => {
       "Stream lookup timed out"
     ));
   } catch (error) {
-    // Deliberately do not log request headers, cookies, URLs, or response bodies.
     console.error(`[companion] ${error.message}`);
     return sendJson(res, 502, { error: error.message });
   }
