@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.8
+
+- Update Nuvio Cloud authentication with official publishable client key and enhanced error reporting.
+
 ## 0.3.7
 
 - Add Nuvio Cloud library synchronization for dynamic TV and movie recommendations.
