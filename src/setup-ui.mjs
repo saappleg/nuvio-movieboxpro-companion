@@ -178,6 +178,7 @@ export function setupPage() {
       <div class="badge" id="serviceBadge"><span class="dot"></span> Service: Initializing…</div>
       <div class="badge" id="mbpBadge"><span class="dot"></span> MovieBoxPro: Checking…</div>
       <div class="badge" id="nuvioCloudBadge"><span class="dot"></span> Nuvio Cloud: Checking…</div>
+      <div class="badge" id="introdbBadge"><span class="dot good"></span> IntroDB: Active</div>
     </div>
   </section>
 
