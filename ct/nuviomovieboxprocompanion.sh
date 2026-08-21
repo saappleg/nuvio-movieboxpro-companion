@@ -30,12 +30,12 @@ function update_script() {
     exit 1
   fi
 
-  if check_for_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion"; then
+  if check_for_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion" "" "" "true"; then
     msg_info "Stopping Companion Services"
     systemctl stop nuvio-companion nuvio-novnc nuvio-vnc nuvio-window-manager nuvio-display
     msg_ok "Stopped Companion Services"
 
-    CLEAN_INSTALL=1 fetch_and_deploy_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion" "tarball"
+    CLEAN_INSTALL=1 fetch_and_deploy_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion" "tarball" "${CHECK_UPDATE_RELEASE:-latest}"
 
     msg_info "Installing Application Dependencies"
     cd /opt/nuvio-movieboxpro-companion
