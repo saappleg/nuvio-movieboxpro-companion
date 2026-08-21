@@ -550,7 +550,8 @@ const server = http.createServer(async (req, res) => {
       if (catalogRequest.catalogId) {
         const isMovie = catalogRequest.mediaType === "movie" || catalogRequest.catalogId.includes("movie");
         const seeds = isMovie ? parseMovieSeeds() : parseSeeds();
-        return sendJson(res, 200, { metas: await loadCatalog(catalogRequest.catalogId, seeds, fetch, new Date(), catalogRequest.mediaType) });
+        const extraParam = catalogRequest.extra || url.search.replace(/^\?/, "");
+        return sendJson(res, 200, { metas: await loadCatalog(catalogRequest.catalogId, seeds, fetch, new Date(), catalogRequest.mediaType, extraParam) });
       }
       if (catalogRequest.metaId) {
         return sendJson(res, 200, { meta: await loadMeta(catalogRequest.metaId, fetch, catalogRequest.mediaType) });

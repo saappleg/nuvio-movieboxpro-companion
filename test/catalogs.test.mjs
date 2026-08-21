@@ -9,6 +9,7 @@ import {
   parseSeeds,
   parseMovieSeeds,
   parseCatalogConfig,
+  parseCatalogExtra,
   resolveSeedShows,
   resolveSeedMovies,
   toMeta
@@ -21,7 +22,7 @@ function response(data) {
   return { ok: true, json: async () => data };
 }
 
-test("catalog manifest exposes series and movie catalogs in requested order", () => {
+test("catalog manifest exposes series and movie catalogs in requested order with search extras", () => {
   const manifest = catalogManifest(APP_VERSION, "private-key");
   assert.equal(manifest.version, APP_VERSION);
   assert.deepEqual(manifest.types, ["movie", "series"]);
@@ -34,6 +35,7 @@ test("catalog manifest exposes series and movie catalogs in requested order", ()
     "new-movies",
     "recommended-movies"
   ]);
+  assert.ok(manifest.catalogs.every((c) => c.extraSupported?.includes("search")));
 });
 
 test("catalog configuration supports custom ordering and toggle states", () => {
@@ -55,6 +57,49 @@ test("catalog configuration supports custom ordering and toggle states", () => {
     "new-series",
     "this-week"
   ]);
+});
+
+test("parseCatalogExtra handles search and pagination parameters", () => {
+  assert.deepEqual(parseCatalogExtra("search=Interstellar&skip=20"), { search: "Interstellar", skip: 20 });
+  assert.deepEqual(parseCatalogExtra("search=Breaking%20Bad.json"), { search: "Breaking Bad", skip: 0 });
+  assert.deepEqual(parseCatalogExtra({ search: "Severance", skip: 40 }), { search: "Severance", skip: 40 });
+  assert.deepEqual(parseCatalogExtra(undefined), {});
+});
+
+test("loadCatalog performs search across movies and TV shows and supports IMDb ID queries", async () => {
+  const movieSearch = await loadCatalog("new-movies", [], async (url) => {
+    if (url.pathname.includes("search/movie")) {
+      assert.equal(url.searchParams.get("query"), "Inception");
+      return response({ results: [{ id: 27205, title: "Inception", release_date: "2010-07-15" }] });
+    }
+    throw new Error("Unexpected route");
+  }, new Date(), "movie", "search=Inception");
+
+  assert.equal(movieSearch.length, 1);
+  assert.equal(movieSearch[0].name, "Inception");
+  assert.equal(movieSearch[0].type, "movie");
+
+  const tvSearch = await loadCatalog("new-series", [], async (url) => {
+    if (url.pathname.includes("search/tv")) {
+      assert.equal(url.searchParams.get("query"), "Severance");
+      return response({ results: [{ id: 95396, name: "Severance", first_air_date: "2022-02-18" }] });
+    }
+    throw new Error("Unexpected route");
+  }, new Date(), "series", "search=Severance");
+
+  assert.equal(tvSearch.length, 1);
+  assert.equal(tvSearch[0].name, "Severance");
+  assert.equal(tvSearch[0].type, "series");
+
+  const imdbSearch = await loadCatalog("new-series", [], async (url) => {
+    if (url.pathname.includes("find/tt27799594")) {
+      return response({ tv_results: [{ id: 226749, name: "The Librarians: The Next Chapter", first_air_date: "2025-05-25" }] });
+    }
+    throw new Error("Unexpected route");
+  }, new Date(), "series", "search=tt27799594");
+
+  assert.equal(imdbSearch.length, 1);
+  assert.equal(imdbSearch[0].name, "The Librarians: The Next Chapter");
 });
 
 test("TMDb items map to Nuvio-compatible series & movie metadata", () => {

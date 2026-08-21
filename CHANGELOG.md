@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.15
+
+- Built-in universal search across all movie and TV catalogs in Nuvio.
+- Support title search and direct IMDb ID lookup (e.g. `tt...`) in add-on search queries.
+- Support standard catalog pagination (`skip`) parameters.
+
 ## 0.3.14
 
 - Add interactive Drag & Drop and Up/Down re-ordering for Discovery & Calendar feeds in Setup Dashboard.
