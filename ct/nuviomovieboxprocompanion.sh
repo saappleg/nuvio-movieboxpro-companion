@@ -30,7 +30,7 @@ function update_script() {
     exit 1
   fi
 
-  if check_for_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion" "" "" "true"; then
+  if check_for_gh_tag "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion"; then
     msg_info "Stopping Companion Services"
     systemctl stop nuvio-companion nuvio-novnc nuvio-vnc nuvio-window-manager nuvio-display
     msg_ok "Stopped Companion Services"
