@@ -1,22 +1,48 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { catalogManifest, loadCatalog, matchCatalogRequestPath, parseSeeds, resolveSeedShows, toMeta } from "../src/catalogs.mjs";
+import {
+  catalogManifest,
+  loadCatalog,
+  loadMeta,
+  matchCatalogRequestPath,
+  parseSeeds,
+  parseMovieSeeds,
+  resolveSeedShows,
+  resolveSeedMovies,
+  toMeta
+} from "../src/catalogs.mjs";
 
 function response(data) {
   return { ok: true, json: async () => data };
 }
 
-test("catalog manifest exposes four TV rows", () => {
-  const manifest = catalogManifest("0.3.5", "private-key");
-  assert.equal(manifest.version, "0.3.5");
-  assert.deepEqual(manifest.catalogs.map((item) => item.id), ["airing-today", "this-week", "new-returning", "recommended"]);
+test("catalog manifest exposes series and movie catalogs", () => {
+  const manifest = catalogManifest("0.3.6", "private-key");
+  assert.equal(manifest.version, "0.3.6");
+  assert.deepEqual(manifest.types, ["series", "movie"]);
+  assert.deepEqual(manifest.catalogs.map((item) => item.id), [
+    "airing-today",
+    "this-week",
+    "new-returning",
+    "new-series",
+    "recommended",
+    "new-movies",
+    "this-week-movies",
+    "recommended-movies"
+  ]);
 });
 
-test("TMDb items map to Nuvio-compatible series metadata", () => {
-  assert.deepEqual(toMeta({ id: 123, name: "Example", poster_path: "/poster.jpg", first_air_date: "2026-08-16" }), {
-    id: "tmdb:123", type: "series", name: "Example",
+test("TMDb items map to Nuvio-compatible series & movie metadata", () => {
+  assert.deepEqual(toMeta({ id: 123, name: "Example Show", poster_path: "/poster.jpg", first_air_date: "2026-08-16" }, "series"), {
+    id: "tmdb:123", type: "series", name: "Example Show",
     poster: "https://image.tmdb.org/t/p/w500/poster.jpg",
     background: undefined, description: undefined, releaseInfo: "2026", imdbRating: undefined
+  });
+
+  assert.deepEqual(toMeta({ id: 456, title: "Example Movie", poster_path: "/m_poster.jpg", release_date: "2026-05-10", vote_average: 8.4 }, "movie"), {
+    id: "tmdb:456", type: "movie", name: "Example Movie",
+    poster: "https://image.tmdb.org/t/p/w500/m_poster.jpg",
+    background: undefined, description: undefined, releaseInfo: "2026", imdbRating: 8.4
   });
 });
 
@@ -29,7 +55,16 @@ test("show names resolve to private recommendation seeds", async () => {
   assert.deepEqual(parseSeeds(JSON.stringify(seeds)), seeds);
 });
 
-test("recommendations combine seeds, rank overlaps, and exclude seed shows", async () => {
+test("movie names resolve to movie recommendation seeds", async () => {
+  const movieSeeds = await resolveSeedMovies("Inception, 789", async (url) => {
+    if (url.pathname.includes("search/movie")) return response({ results: [{ id: 27205, title: "Inception" }] });
+    return response({ id: 789, title: "Another Movie" });
+  });
+  assert.deepEqual(movieSeeds, [{ id: 27205, name: "Inception" }, { id: 789, name: "Another Movie" }]);
+  assert.deepEqual(parseMovieSeeds(JSON.stringify(movieSeeds)), movieSeeds);
+});
+
+test("recommendations combine seeds, rank overlaps, and exclude seed shows/movies", async () => {
   const seeds = [{ id: 1, name: "One" }, { id: 2, name: "Two" }];
   const metas = await loadCatalog("recommended", seeds, async (url) => {
     const first = url.pathname.includes("tv/1/");
@@ -41,10 +76,28 @@ test("recommendations combine seeds, rank overlaps, and exclude seed shows", asy
   assert.deepEqual(metas.map((item) => item.name), ["Shared", "Other"]);
 });
 
-test("metadata route accepts Nuvio's encoded TMDb IDs", () => {
+test("movie recommendations load correctly", async () => {
+  const movieSeeds = [{ id: 550, name: "Fight Club" }];
+  const metas = await loadCatalog("recommended-movies", movieSeeds, async (url) => {
+    return response({ results: [{ id: 680, title: "Pulp Fiction", popularity: 50, release_date: "1994-09-10" }] });
+  }, new Date(), "movie");
+  assert.equal(metas.length, 1);
+  assert.equal(metas[0].name, "Pulp Fiction");
+  assert.equal(metas[0].type, "movie");
+});
+
+test("metadata route accepts Nuvio's encoded TMDb IDs for series and movies", () => {
   assert.deepEqual(
     matchCatalogRequestPath("/catalog/private-key/meta/series/tmdb%3A123.json"),
-    { key: "private-key", resource: "meta/series/tmdb%3A123.json", catalogId: undefined, metaId: "123" }
+    { key: "private-key", resource: "meta/series/tmdb%3A123.json", mediaType: "series", catalogId: undefined, metaId: "123" }
+  );
+  assert.deepEqual(
+    matchCatalogRequestPath("/catalog/private-key/meta/movie/tmdb%3A456.json"),
+    { key: "private-key", resource: "meta/movie/tmdb%3A456.json", mediaType: "movie", catalogId: undefined, metaId: "456" }
+  );
+  assert.deepEqual(
+    matchCatalogRequestPath("/catalog/private-key/catalog/movie/new-movies.json"),
+    { key: "private-key", resource: "catalog/movie/new-movies.json", mediaType: "movie", catalogId: "new-movies", metaId: undefined }
   );
   assert.equal(matchCatalogRequestPath("/catalog/private-key/meta/series/imdb%3Att123.json"), undefined);
 });
