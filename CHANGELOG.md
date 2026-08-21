@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.10
+
+- Add Movie catalogs and search extras to Discovery & Calendar manifest.
+- Support parameterized catalog routes with extras and path extensions.
+- Ensure companion version numbering is synchronized across package, container, Provider, and Add-on manifests.
+
 ## 0.3.9
 
 - Harden dashboard status parsing and display companion public address in status badge.
