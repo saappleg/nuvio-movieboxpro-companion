@@ -23,16 +23,16 @@ function response(data) {
 test("catalog manifest exposes series and movie catalogs matching package version", () => {
   const manifest = catalogManifest(APP_VERSION, "private-key");
   assert.equal(manifest.version, APP_VERSION);
-  assert.deepEqual(manifest.types, ["series", "movie"]);
+  assert.deepEqual(manifest.types, ["movie", "series"]);
   assert.deepEqual(manifest.catalogs.map((item) => item.id), [
+    "new-movies",
+    "this-week-movies",
+    "recommended-movies",
     "airing-today",
     "this-week",
     "new-returning",
     "new-series",
-    "recommended",
-    "new-movies",
-    "this-week-movies",
-    "recommended-movies"
+    "recommended"
   ]);
 });
 
@@ -101,7 +101,7 @@ test("metadata route accepts Nuvio's encoded TMDb IDs for series and movies", ()
   );
   assert.deepEqual(
     matchCatalogRequestPath("/catalog/private-key/catalog/movie/new-movies.json"),
-    { key: "private-key", resource: "catalog/movie/new-movies.json", mediaType: "movie", catalogId: "new-movies", metaId: undefined }
+    { key: "private-key", resource: "catalog/movie/new-movies.json", mediaType: "movie", catalogId: "new-movies", extra: undefined }
   );
   assert.equal(matchCatalogRequestPath("/catalog/private-key/meta/series/imdb%3Att123.json"), undefined);
 });

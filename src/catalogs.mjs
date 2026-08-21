@@ -18,16 +18,16 @@ export async function tmdb(pathname, params = {}, fetchImpl = fetch) {
 export function toMeta(item, defaultType = "series") {
   const id = Number(item.id);
   if (!id || !(item.name || item.title)) return null;
-  const isMovie = defaultType === "movie" || Boolean(item.title && !item.name && item.release_date);
+  const isMovie = defaultType === "movie" || Boolean(item.title && !item.name && (item.release_date || item.runtime));
   const type = isMovie ? "movie" : "series";
   return {
     id: `tmdb:${id}`,
     type,
-    name: item.name || item.title,
+    name: item.title || item.name,
     poster: item.poster_path ? `${IMAGE_BASE}/w500${item.poster_path}` : undefined,
     background: item.backdrop_path ? `${IMAGE_BASE}/w1280${item.backdrop_path}` : undefined,
     description: item.overview || undefined,
-    releaseInfo: String(item.first_air_date || item.release_date || "").slice(0, 4) || undefined,
+    releaseInfo: String(item.release_date || item.first_air_date || "").slice(0, 4) || undefined,
     imdbRating: Number(item.vote_average) ? Number(item.vote_average.toFixed(1)) : undefined
   };
 }
@@ -44,16 +44,67 @@ export function catalogManifest(version, key) {
     name: "Nuvio Companion Discovery & Calendar",
     description: "Calendar releases, new movies & series, and personalized recommendations powered by TMDb and Nuvio Cloud",
     resources: ["catalog", "meta"],
-    types: ["series", "movie"],
+    types: ["movie", "series"],
+    idPrefixes: ["tmdb:"],
     catalogs: [
-      { type: "series", id: "airing-today", name: "Airing Today" },
-      { type: "series", id: "this-week", name: "This Week (TV)" },
-      { type: "series", id: "new-returning", name: "New & Returning" },
-      { type: "series", id: "new-series", name: "New Series" },
-      { type: "series", id: "recommended", name: "Recommended TV (Nuvio Library)" },
-      { type: "movie", id: "new-movies", name: "New Movies" },
-      { type: "movie", id: "this-week-movies", name: "This Week (Movies)" },
-      { type: "movie", id: "recommended-movies", name: "Recommended Movies (Nuvio Library)" }
+      // Movies Catalogs
+      {
+        type: "movie",
+        id: "new-movies",
+        name: "New Movies",
+        extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+        extraSupported: ["search", "skip"]
+      },
+      {
+        type: "movie",
+        id: "this-week-movies",
+        name: "This Week (Movies)",
+        extra: [{ name: "skip", isRequired: false }],
+        extraSupported: ["skip"]
+      },
+      {
+        type: "movie",
+        id: "recommended-movies",
+        name: "Recommended Movies",
+        extra: [{ name: "skip", isRequired: false }],
+        extraSupported: ["skip"]
+      },
+      // TV Series Catalogs
+      {
+        type: "series",
+        id: "airing-today",
+        name: "Airing Today",
+        extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+        extraSupported: ["search", "skip"]
+      },
+      {
+        type: "series",
+        id: "this-week",
+        name: "This Week (TV)",
+        extra: [{ name: "skip", isRequired: false }],
+        extraSupported: ["skip"]
+      },
+      {
+        type: "series",
+        id: "new-returning",
+        name: "New & Returning",
+        extra: [{ name: "skip", isRequired: false }],
+        extraSupported: ["skip"]
+      },
+      {
+        type: "series",
+        id: "new-series",
+        name: "New Series",
+        extra: [{ name: "skip", isRequired: false }],
+        extraSupported: ["skip"]
+      },
+      {
+        type: "series",
+        id: "recommended",
+        name: "Recommended TV",
+        extra: [{ name: "skip", isRequired: false }],
+        extraSupported: ["skip"]
+      }
     ],
     behaviorHints: { configurable: false, configurationRequired: false }
   };
@@ -106,19 +157,46 @@ export function parseMovieSeeds(value = process.env.MOVIE_RECOMMENDATION_SEEDS |
 }
 
 export function matchCatalogRequestPath(pathname) {
-  const match = String(pathname).match(/^\/catalog\/([^/]+)\/(manifest\.json|catalog\/(series|movie|tv)\/([^/.]+)\.json|meta\/(series|movie|tv)\/([^/]+)\.json|logo\.svg)$/);
-  if (!match) return undefined;
-  let key;
-  let metaId;
-  const resource = match[2];
-  const typeParam = match[3] || match[5];
-  const mediaType = typeParam === "movie" ? "movie" : "series";
-  try {
-    key = decodeURIComponent(match[1]);
-    metaId = match[6] ? decodeURIComponent(match[6]).replace(/^tmdb:/i, "") : undefined;
-  } catch { return undefined; }
-  if (metaId && !/^\d+$/.test(metaId)) return undefined;
-  return { key, resource, mediaType, catalogId: match[4], metaId };
+  const cleanPath = String(pathname || "").split("?")[0];
+
+  // 1. Logo
+  if (/\/catalog\/[^/]+\/logo\.svg$/i.test(cleanPath)) {
+    const match = cleanPath.match(/\/catalog\/([^/]+)\/logo\.svg/i);
+    return { key: decodeURIComponent(match[1]), resource: "logo.svg" };
+  }
+
+  // 2. Manifest
+  if (/\/catalog\/[^/]+\/manifest\.json$/i.test(cleanPath)) {
+    const match = cleanPath.match(/\/catalog\/([^/]+)\/manifest\.json/i);
+    return { key: decodeURIComponent(match[1]), resource: "manifest.json" };
+  }
+
+  // 3. Catalog: /catalog/:key/catalog/:type/:catalogId[/:extra][.json]
+  const catMatch = cleanPath.match(/^\/catalog\/([^/]+)\/(catalog\/(movie|series|tv)\/([^/]+?)(?:\/([^/]+))?(?:\.json)?)$/i);
+  if (catMatch) {
+    const key = decodeURIComponent(catMatch[1]);
+    const resource = catMatch[2];
+    const rawType = catMatch[3].toLowerCase();
+    const mediaType = rawType === "movie" ? "movie" : "series";
+    const catalogId = decodeURIComponent(catMatch[4]).replace(/\.json$/i, "");
+    const extra = catMatch[5] ? decodeURIComponent(catMatch[5]).replace(/\.json$/i, "") : undefined;
+    return { key, resource: resource.endsWith(".json") ? resource : `${resource}.json`, mediaType, catalogId, extra };
+  }
+
+  // 4. Meta: /catalog/:key/meta/:type/:metaId[.json]
+  const metaMatch = cleanPath.match(/^\/catalog\/([^/]+)\/(meta\/(movie|series|tv)\/([^/]+))$/i);
+  if (metaMatch) {
+    const key = decodeURIComponent(metaMatch[1]);
+    const resource = metaMatch[2];
+    const rawType = metaMatch[3].toLowerCase();
+    const mediaType = rawType === "movie" ? "movie" : "series";
+    let rawMetaId = decodeURIComponent(metaMatch[4]).replace(/\.json$/i, "");
+    rawMetaId = rawMetaId.replace(/^tmdb:/i, "").trim();
+    if (!/^\d+$/.test(rawMetaId)) return undefined;
+    return { key, resource: resource.endsWith(".json") ? resource : `${resource}.json`, mediaType, catalogId: undefined, metaId: rawMetaId };
+  }
+
+  return undefined;
 }
 
 export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = fetch, now = new Date(), mediaType = "series") {
@@ -133,13 +211,13 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
   // Series Catalogs
   if (catalogId === "airing-today") {
     results = (await tmdb("tv/airing_today", { language: "en-US", page: 1 }, fetchImpl)).results || [];
-  } else if (catalogId === "this-week") {
+  } else if (catalogId === "this-week" || catalogId === "this-week-tv") {
     results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", "air_date.gte": date(0), "air_date.lte": date(7), page: 1 }, fetchImpl)).results || [];
   } else if (catalogId === "new-returning") {
     results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", "first_air_date.gte": date(-30), "first_air_date.lte": date(30), page: 1 }, fetchImpl)).results || [];
   } else if (catalogId === "new-series") {
     results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", "first_air_date.gte": date(-60), page: 1 }, fetchImpl)).results || [];
-  } else if (catalogId === "recommended") {
+  } else if (catalogId === "recommended" && normalizedType === "series") {
     const validSeeds = seeds.slice(0, 8);
     if (!validSeeds.length) {
       results = (await tmdb("tv/top_rated", { language: "en-US", page: 1 }, fetchImpl)).results || [];
@@ -158,7 +236,7 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
     }
   }
   // Movie Catalogs
-  else if (catalogId === "new-movies") {
+  else if (catalogId === "new-movies" || catalogId === "now-playing") {
     results = (await tmdb("movie/now_playing", { language: "en-US", page: 1 }, fetchImpl)).results || [];
   } else if (catalogId === "this-week-movies") {
     results = (await tmdb("discover/movie", { language: "en-US", sort_by: "popularity.desc", "primary_release_date.gte": date(-7), "primary_release_date.lte": date(7), page: 1 }, fetchImpl)).results || [];
