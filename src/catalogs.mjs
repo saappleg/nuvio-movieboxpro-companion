@@ -273,5 +273,59 @@ export async function loadMeta(tmdbId, fetchImpl = fetch, mediaType = "series") 
   meta.genres = (data.genres || []).map((genre) => genre.name).filter(Boolean);
   meta.status = data.status || undefined;
   if (data.runtime) meta.runtime = `${data.runtime} min`;
+
+  // For TV Series, populate seasons and episodes in the standard `videos` array
+  if (!isMovie && Array.isArray(data.seasons)) {
+    const validSeasons = data.seasons.filter((s) => Number(s.season_number) >= 1 && (s.episode_count || 0) > 0).slice(0, 30);
+    const seasonData = await Promise.all(validSeasons.map(async (s) => {
+      try {
+        return await tmdb(`tv/${Number(tmdbId)}/season/${s.season_number}`, { language: "en-US" }, fetchImpl);
+      } catch {
+        return { season_number: s.season_number, episodes: [] };
+      }
+    }));
+
+    const videos = [];
+    for (let i = 0; i < validSeasons.length; i++) {
+      const s = validSeasons[i];
+      const sDetails = seasonData[i];
+      const episodes = Array.isArray(sDetails?.episodes) && sDetails.episodes.length ? sDetails.episodes : null;
+
+      if (episodes) {
+        for (const ep of episodes) {
+          const sNum = Number(ep.season_number ?? s.season_number);
+          const epNum = Number(ep.episode_number);
+          if (!sNum || !epNum) continue;
+          videos.push({
+            id: `tmdb:${tmdbId}:${sNum}:${epNum}`,
+            title: ep.name || `Episode ${epNum}`,
+            name: ep.name || `Episode ${epNum}`,
+            season: sNum,
+            episode: epNum,
+            number: epNum,
+            released: ep.air_date ? new Date(ep.air_date).toISOString() : undefined,
+            firstAired: ep.air_date ? new Date(ep.air_date).toISOString() : undefined,
+            overview: ep.overview || undefined,
+            thumbnail: ep.still_path ? `${IMAGE_BASE}/w500${ep.still_path}` : undefined,
+            rating: Number(ep.vote_average) ? Number(ep.vote_average.toFixed(1)) : undefined
+          });
+        }
+      } else {
+        const count = Number(s.episode_count) || 0;
+        for (let epNum = 1; epNum <= count; epNum++) {
+          videos.push({
+            id: `tmdb:${tmdbId}:${s.season_number}:${epNum}`,
+            title: `Season ${s.season_number} Episode ${epNum}`,
+            name: `Season ${s.season_number} Episode ${epNum}`,
+            season: Number(s.season_number),
+            episode: epNum,
+            number: epNum
+          });
+        }
+      }
+    }
+    meta.videos = videos;
+  }
+
   return meta;
 }

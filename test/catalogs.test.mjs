@@ -50,6 +50,36 @@ test("TMDb items map to Nuvio-compatible series & movie metadata", () => {
   });
 });
 
+test("loadMeta populates episode videos array for series and single meta for movie", async () => {
+  const seriesMeta = await loadMeta(123, async (url) => {
+    if (url.pathname.includes("season/1")) {
+      return response({
+        episodes: [
+          { episode_number: 1, name: "Pilot", air_date: "2026-01-01", season_number: 1, still_path: "/still.jpg" },
+          { episode_number: 2, name: "Second", air_date: "2026-01-08", season_number: 1 }
+        ]
+      });
+    }
+    return response({ id: 123, name: "Test Show", seasons: [{ season_number: 1, episode_count: 2 }] });
+  }, "series");
+
+  assert.equal(seriesMeta.name, "Test Show");
+  assert.equal(seriesMeta.type, "series");
+  assert.equal(seriesMeta.videos.length, 2);
+  assert.equal(seriesMeta.videos[0].id, "tmdb:123:1:1");
+  assert.equal(seriesMeta.videos[0].title, "Pilot");
+  assert.equal(seriesMeta.videos[0].season, 1);
+  assert.equal(seriesMeta.videos[0].episode, 1);
+
+  const movieMeta = await loadMeta(456, async () => {
+    return response({ id: 456, title: "Test Movie", release_date: "2026-05-01" });
+  }, "movie");
+
+  assert.equal(movieMeta.name, "Test Movie");
+  assert.equal(movieMeta.type, "movie");
+  assert.equal(movieMeta.videos, undefined);
+});
+
 test("show names resolve to private recommendation seeds", async () => {
   const seeds = await resolveSeedShows("King of the Hill, 456", async (url) => {
     if (url.pathname.includes("search/tv")) return response({ results: [{ id: 111, name: "King of the Hill" }] });

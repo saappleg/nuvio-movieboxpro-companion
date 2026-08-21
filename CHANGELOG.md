@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.11
+
+- Populate complete season and episode breakdown (`videos` array) for TV Series metadata.
+- Support episode thumbnails, air dates, overviews, and season/episode numbering in Nuvio details page.
+
 ## 0.3.10
 
 - Add Movie catalogs and search extras to Discovery & Calendar manifest.
