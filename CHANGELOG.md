@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.14
+
+- Add interactive Drag & Drop and Up/Down re-ordering for Discovery & Calendar feeds in Setup Dashboard.
+- Add individual ON/OFF toggle switches for every catalog feed with persistent configuration.
+- Support extra optional feeds (e.g. This Week TV/Movies, New & Returning, Global Airing Today) with customizable layout.
+
 ## 0.3.13
 
 - Add "New Today - Library Based" catalog feed that checks airing episodes for library shows and cleanly hides when empty.

@@ -19,6 +19,7 @@ import {
   matchCatalogRequestPath,
   parseSeeds,
   parseMovieSeeds,
+  parseCatalogConfig,
   resolveSeedShows,
   resolveSeedMovies
 } from "./catalogs.mjs";
@@ -40,6 +41,7 @@ const PERSISTED_KEYS = [
   "STREAM_TIMEOUT_MS",
   "RECOMMENDATION_SEEDS",
   "MOVIE_RECOMMENDATION_SEEDS",
+  "DISCOVERY_CATALOGS_CONFIG",
   "NUVIO_CLOUD_EMAIL",
   "NUVIO_CLOUD_TOKEN",
   "NUVIO_CLOUD_PROFILE_ID",
@@ -374,6 +376,7 @@ const server = http.createServer(async (req, res) => {
           pluginKeyConfigured: Boolean(process.env.PLUGIN_SETUP_KEY),
           recommendationSeeds: parseSeeds(),
           movieRecommendationSeeds: parseMovieSeeds(),
+          catalogsConfig: parseCatalogConfig(),
           nuvioCloud: {
             connected: Boolean(process.env.NUVIO_CLOUD_TOKEN || process.env.NUVIO_CLOUD_EMAIL),
             email: process.env.NUVIO_CLOUD_EMAIL || "",
@@ -495,6 +498,23 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { ok: true, seeds });
       }
 
+      // Catalogs Layout & Toggles
+      if (url.pathname === "/api/setup/catalogs-config" && req.method === "POST") {
+        requireConfig();
+        const body = await readJsonBody(req);
+        const catalogs = Array.isArray(body.catalogs) ? body.catalogs : [];
+        if (!catalogs.length) {
+          await saveEnvValues({ DISCOVERY_CATALOGS_CONFIG: "" });
+          return sendJson(res, 200, { ok: true, catalogs: parseCatalogConfig("") });
+        }
+        const clean = catalogs.map((c) => ({
+          id: String(c.id || "").trim(),
+          enabled: Boolean(c.enabled)
+        })).filter((c) => c.id);
+        await saveEnvValues({ DISCOVERY_CATALOGS_CONFIG: JSON.stringify(clean) });
+        return sendJson(res, 200, { ok: true, catalogs: parseCatalogConfig(clean) });
+      }
+
       if (url.pathname === "/api/setup/config" && req.method === "POST") {
         const body = await readJsonBody(req);
         const updates = {};
@@ -526,7 +546,7 @@ const server = http.createServer(async (req, res) => {
     const catalogRequest = matchCatalogRequestPath(url.pathname);
     if (catalogRequest && req.method === "GET") {
       if (!process.env.PLUGIN_SETUP_KEY || catalogRequest.key !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      if (catalogRequest.resource === "manifest.json") return sendJson(res, 200, catalogManifest(APP_VERSION, catalogRequest.key));
+      if (catalogRequest.resource === "manifest.json") return sendJson(res, 200, catalogManifest(APP_VERSION, catalogRequest.key, parseCatalogConfig()));
       if (catalogRequest.catalogId) {
         const isMovie = catalogRequest.mediaType === "movie" || catalogRequest.catalogId.includes("movie");
         const seeds = isMovie ? parseMovieSeeds() : parseSeeds();

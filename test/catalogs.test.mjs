@@ -8,6 +8,7 @@ import {
   matchCatalogRequestPath,
   parseSeeds,
   parseMovieSeeds,
+  parseCatalogConfig,
   resolveSeedShows,
   resolveSeedMovies,
   toMeta
@@ -32,6 +33,27 @@ test("catalog manifest exposes series and movie catalogs in requested order", ()
     "recommended-series",
     "new-movies",
     "recommended-movies"
+  ]);
+});
+
+test("catalog configuration supports custom ordering and toggle states", () => {
+  const customConfig = [
+    { id: "recommended-movies", enabled: true },
+    { id: "now-playing", enabled: false },
+    { id: "new-series", enabled: true },
+    { id: "this-week", enabled: true }
+  ];
+  const parsed = parseCatalogConfig(JSON.stringify(customConfig));
+  assert.equal(parsed[0].id, "recommended-movies");
+  assert.equal(parsed[0].enabled, true);
+  assert.equal(parsed[1].id, "now-playing");
+  assert.equal(parsed[1].enabled, false);
+
+  const manifest = catalogManifest(APP_VERSION, "private-key", parsed);
+  assert.deepEqual(manifest.catalogs.map((c) => c.id), [
+    "recommended-movies",
+    "new-series",
+    "this-week"
   ]);
 });
 
