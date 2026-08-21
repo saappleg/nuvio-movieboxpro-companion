@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.13
+
+- Add "New Today - Library Based" catalog feed that checks airing episodes for library shows and cleanly hides when empty.
+- Re-order Discovery Add-on catalog feeds to: Now Playing, New Today - Library Based, New Series, Recommended Series, New Movies, Recommended Movies.
+
 ## 0.3.12
 
 - Support IMDb IDs (e.g. `tt...`) in metadata lookups and add-on manifest `idPrefixes`.

@@ -283,59 +283,45 @@ export function setupPage() {
       <p>The companion dynamically serves these rows directly into Nuvio's home and catalog views:</p>
       <div class="catalog-tag-grid">
         <div class="catalog-tag">
-          <div class="catalog-tag-icon">TV</div>
+          <div class="catalog-tag-icon">MOV</div>
           <div>
-            <div class="catalog-tag-title">Airing Today</div>
-            <div class="catalog-tag-sub">Broadcast episodes today</div>
+            <div class="catalog-tag-title">Now Playing</div>
+            <div class="catalog-tag-sub">In theaters & digital now</div>
           </div>
         </div>
         <div class="catalog-tag">
           <div class="catalog-tag-icon">TV</div>
           <div>
-            <div class="catalog-tag-title">This Week (TV)</div>
-            <div class="catalog-tag-sub">Upcoming TV this week</div>
-          </div>
-        </div>
-        <div class="catalog-tag">
-          <div class="catalog-tag-icon">TV</div>
-          <div>
-            <div class="catalog-tag-title">New & Returning</div>
-            <div class="catalog-tag-sub">Premieres & new seasons</div>
+            <div class="catalog-tag-title">New Today - Library Based</div>
+            <div class="catalog-tag-sub">Airing today from your library</div>
           </div>
         </div>
         <div class="catalog-tag">
           <div class="catalog-tag-icon">TV</div>
           <div>
             <div class="catalog-tag-title">New Series</div>
-            <div class="catalog-tag-sub">Trending recent series</div>
+            <div class="catalog-tag-sub">Trending recent TV series</div>
           </div>
         </div>
         <div class="catalog-tag">
           <div class="catalog-tag-icon">TV</div>
           <div>
-            <div class="catalog-tag-title">Recommended TV</div>
-            <div class="catalog-tag-sub">Synced from Nuvio Library</div>
+            <div class="catalog-tag-title">Recommended Series</div>
+            <div class="catalog-tag-sub">Personalized TV recommendations</div>
           </div>
         </div>
         <div class="catalog-tag">
           <div class="catalog-tag-icon">MOV</div>
           <div>
             <div class="catalog-tag-title">New Movies</div>
-            <div class="catalog-tag-sub">Now playing & digital releases</div>
-          </div>
-        </div>
-        <div class="catalog-tag">
-          <div class="catalog-tag-icon">MOV</div>
-          <div>
-            <div class="catalog-tag-title">This Week (Movies)</div>
-            <div class="catalog-tag-sub">Releases arriving this week</div>
+            <div class="catalog-tag-sub">Recent & upcoming movie releases</div>
           </div>
         </div>
         <div class="catalog-tag">
           <div class="catalog-tag-icon">MOV</div>
           <div>
             <div class="catalog-tag-title">Recommended Movies</div>
-            <div class="catalog-tag-sub">Synced from Nuvio Library</div>
+            <div class="catalog-tag-sub">Personalized movie recommendations</div>
           </div>
         </div>
       </div>

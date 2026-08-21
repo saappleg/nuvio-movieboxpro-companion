@@ -47,7 +47,34 @@ export function catalogManifest(version, key) {
     types: ["movie", "series"],
     idPrefixes: ["tmdb:", "tt"],
     catalogs: [
-      // Movies Catalogs
+      {
+        type: "movie",
+        id: "now-playing",
+        name: "Now Playing",
+        extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+        extraSupported: ["search", "skip"]
+      },
+      {
+        type: "series",
+        id: "library-today",
+        name: "New Today - Library Based",
+        extra: [{ name: "skip", isRequired: false }],
+        extraSupported: ["skip"]
+      },
+      {
+        type: "series",
+        id: "new-series",
+        name: "New Series",
+        extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+        extraSupported: ["search", "skip"]
+      },
+      {
+        type: "series",
+        id: "recommended-series",
+        name: "Recommended Series",
+        extra: [{ name: "skip", isRequired: false }],
+        extraSupported: ["skip"]
+      },
       {
         type: "movie",
         id: "new-movies",
@@ -57,51 +84,8 @@ export function catalogManifest(version, key) {
       },
       {
         type: "movie",
-        id: "this-week-movies",
-        name: "This Week (Movies)",
-        extra: [{ name: "skip", isRequired: false }],
-        extraSupported: ["skip"]
-      },
-      {
-        type: "movie",
         id: "recommended-movies",
         name: "Recommended Movies",
-        extra: [{ name: "skip", isRequired: false }],
-        extraSupported: ["skip"]
-      },
-      // TV Series Catalogs
-      {
-        type: "series",
-        id: "airing-today",
-        name: "Airing Today",
-        extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
-        extraSupported: ["search", "skip"]
-      },
-      {
-        type: "series",
-        id: "this-week",
-        name: "This Week (TV)",
-        extra: [{ name: "skip", isRequired: false }],
-        extraSupported: ["skip"]
-      },
-      {
-        type: "series",
-        id: "new-returning",
-        name: "New & Returning",
-        extra: [{ name: "skip", isRequired: false }],
-        extraSupported: ["skip"]
-      },
-      {
-        type: "series",
-        id: "new-series",
-        name: "New Series",
-        extra: [{ name: "skip", isRequired: false }],
-        extraSupported: ["skip"]
-      },
-      {
-        type: "series",
-        id: "recommended",
-        name: "Recommended TV",
         extra: [{ name: "skip", isRequired: false }],
         extraSupported: ["skip"]
       }
@@ -209,18 +193,49 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
     return value.toISOString().slice(0, 10);
   };
   let results = [];
-  const normalizedType = mediaType === "movie" || catalogId.includes("movie") ? "movie" : "series";
+  const normalizedType = mediaType === "movie" || catalogId.includes("movie") || catalogId === "now-playing" ? "movie" : "series";
 
-  // Series Catalogs
-  if (catalogId === "airing-today") {
-    results = (await tmdb("tv/airing_today", { language: "en-US", page: 1 }, fetchImpl)).results || [];
-  } else if (catalogId === "this-week" || catalogId === "this-week-tv") {
-    results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", "air_date.gte": date(0), "air_date.lte": date(7), page: 1 }, fetchImpl)).results || [];
-  } else if (catalogId === "new-returning") {
-    results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", "first_air_date.gte": date(-30), "first_air_date.lte": date(30), page: 1 }, fetchImpl)).results || [];
-  } else if (catalogId === "new-series") {
+  // 1. Now Playing (Movie)
+  if (catalogId === "now-playing") {
+    results = (await tmdb("movie/now_playing", { language: "en-US", page: 1 }, fetchImpl)).results || [];
+  }
+  // 2. New Today - Library Based (Series)
+  else if (catalogId === "library-today" || catalogId === "airing-today-library") {
+    if (!seeds.length) return [];
+    const seedIds = new Set(seeds.map((s) => Number(s.id)));
+    const todayStr = new Date(now).toISOString().slice(0, 10);
+
+    let airingTodayResults = [];
+    try {
+      const airingTodayData = await tmdb("tv/airing_today", { language: "en-US", page: 1 }, fetchImpl);
+      airingTodayResults = airingTodayData.results || [];
+    } catch {}
+
+    const matched = airingTodayResults.filter((item) => seedIds.has(Number(item.id)));
+    const matchedIds = new Set(matched.map((item) => Number(item.id)));
+
+    // Check direct seeds for episode air_date matching today
+    const checkSeeds = seeds.filter((s) => !matchedIds.has(Number(s.id))).slice(0, 20);
+    const directChecks = await Promise.all(checkSeeds.map(async (seed) => {
+      try {
+        const details = await tmdb(`tv/${seed.id}`, { language: "en-US" }, fetchImpl);
+        const lastAir = details.last_episode_to_air?.air_date;
+        const nextAir = details.next_episode_to_air?.air_date;
+        if (lastAir === todayStr || nextAir === todayStr) {
+          return details;
+        }
+      } catch {}
+      return null;
+    }));
+
+    results = [...matched, ...directChecks.filter(Boolean)];
+  }
+  // 3. New Series
+  else if (catalogId === "new-series") {
     results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", "first_air_date.gte": date(-60), page: 1 }, fetchImpl)).results || [];
-  } else if (catalogId === "recommended" && normalizedType === "series") {
+  }
+  // 4. Recommended Series
+  else if (catalogId === "recommended-series" || (normalizedType === "series" && catalogId === "recommended")) {
     const validSeeds = seeds.slice(0, 8);
     if (!validSeeds.length) {
       results = (await tmdb("tv/top_rated", { language: "en-US", page: 1 }, fetchImpl)).results || [];
@@ -238,12 +253,12 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
       results = [...scores.values()].sort((a, b) => b.score - a.score || (b.item.popularity || 0) - (a.item.popularity || 0)).map((entry) => entry.item);
     }
   }
-  // Movie Catalogs
-  else if (catalogId === "new-movies" || catalogId === "now-playing") {
-    results = (await tmdb("movie/now_playing", { language: "en-US", page: 1 }, fetchImpl)).results || [];
-  } else if (catalogId === "this-week-movies") {
-    results = (await tmdb("discover/movie", { language: "en-US", sort_by: "popularity.desc", "primary_release_date.gte": date(-7), "primary_release_date.lte": date(7), page: 1 }, fetchImpl)).results || [];
-  } else if (catalogId === "recommended-movies" || (normalizedType === "movie" && catalogId === "recommended")) {
+  // 5. New Movies
+  else if (catalogId === "new-movies") {
+    results = (await tmdb("discover/movie", { language: "en-US", sort_by: "popularity.desc", "primary_release_date.gte": date(-45), "primary_release_date.lte": date(15), page: 1 }, fetchImpl)).results || [];
+  }
+  // 6. Recommended Movies
+  else if (catalogId === "recommended-movies" || (normalizedType === "movie" && catalogId === "recommended")) {
     const validSeeds = seeds.slice(0, 8);
     if (!validSeeds.length) {
       results = (await tmdb("movie/top_rated", { language: "en-US", page: 1 }, fetchImpl)).results || [];
@@ -260,6 +275,16 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
       }
       results = [...scores.values()].sort((a, b) => b.score - a.score || (b.item.popularity || 0) - (a.item.popularity || 0)).map((entry) => entry.item);
     }
+  }
+  // Legacy / Calendar aliases
+  else if (catalogId === "airing-today") {
+    results = (await tmdb("tv/airing_today", { language: "en-US", page: 1 }, fetchImpl)).results || [];
+  } else if (catalogId === "this-week" || catalogId === "this-week-tv") {
+    results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", "air_date.gte": date(0), "air_date.lte": date(7), page: 1 }, fetchImpl)).results || [];
+  } else if (catalogId === "new-returning") {
+    results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", "first_air_date.gte": date(-30), "first_air_date.lte": date(30), page: 1 }, fetchImpl)).results || [];
+  } else if (catalogId === "this-week-movies") {
+    results = (await tmdb("discover/movie", { language: "en-US", sort_by: "popularity.desc", "primary_release_date.gte": date(-7), "primary_release_date.lte": date(7), page: 1 }, fetchImpl)).results || [];
   } else {
     throw new Error(`Unknown catalog: ${catalogId}`);
   }
