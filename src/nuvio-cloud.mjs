@@ -1,21 +1,24 @@
 import { tmdb } from "./catalogs.mjs";
 
 const DEFAULT_NUVIO_CLOUD_URL = "https://api.nuvio.tv";
-const DEFAULT_NUVIO_ANON_KEY = "sb_publishable_nuvio_public_client_v1";
+export const DEFAULT_NUVIO_ANON_KEY = "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN";
+
+function getAnonKey(customKey) {
+  return customKey || process.env.NUVIO_APP_ANON_KEY || DEFAULT_NUVIO_ANON_KEY;
+}
 
 /**
- * Authenticates with Nuvio Cloud (Supabase backend) using email and password.
+ * Authenticates with Nuvio Cloud using email and password.
  */
-export async function loginNuvioCloud(email, password, cloudUrl = DEFAULT_NUVIO_CLOUD_URL, anonKey = DEFAULT_NUVIO_ANON_KEY, fetchImpl = fetch) {
+export async function loginNuvioCloud(email, password, cloudUrl = DEFAULT_NUVIO_CLOUD_URL, anonKey = null, fetchImpl = fetch) {
   const base = String(cloudUrl || DEFAULT_NUVIO_CLOUD_URL).replace(/\/$/, "");
   const url = `${base}/auth/v1/token?grant_type=password`;
-  
+  const key = getAnonKey(anonKey);
+
   const headers = {
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "apikey": key
   };
-  if (anonKey) {
-    headers["apikey"] = anonKey;
-  }
 
   const response = await fetchImpl(url, {
     method: "POST",
@@ -25,7 +28,8 @@ export async function loginNuvioCloud(email, password, cloudUrl = DEFAULT_NUVIO_
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error_description || data.msg || data.error || `Nuvio Cloud login failed (${response.status})`);
+    const errorMsg = data.message || data.msg || data.error_description || data.error || `Nuvio Cloud login failed (${response.status})`;
+    throw new Error(errorMsg);
   }
 
   return {
@@ -42,17 +46,16 @@ export async function loginNuvioCloud(email, password, cloudUrl = DEFAULT_NUVIO_
 /**
  * Retrieves profiles for the authenticated Nuvio Cloud user.
  */
-export async function fetchNuvioProfiles(accessToken, cloudUrl = DEFAULT_NUVIO_CLOUD_URL, anonKey = DEFAULT_NUVIO_ANON_KEY, fetchImpl = fetch) {
+export async function fetchNuvioProfiles(accessToken, cloudUrl = DEFAULT_NUVIO_CLOUD_URL, anonKey = null, fetchImpl = fetch) {
   const base = String(cloudUrl || DEFAULT_NUVIO_CLOUD_URL).replace(/\/$/, "");
+  const key = getAnonKey(anonKey);
   const headers = {
     "Content-Type": "application/json",
-    "Authorization": `Bearer ${accessToken}`
+    "Authorization": `Bearer ${accessToken}`,
+    "apikey": key
   };
-  if (anonKey) {
-    headers["apikey"] = anonKey;
-  }
 
-  // Try RPC sync_pull_profiles first, fallback to rest/v1/profiles
+  // 1. Try RPC sync_pull_profiles (official documented endpoint)
   try {
     const rpcRes = await fetchImpl(`${base}/rest/v1/rpc/sync_pull_profiles`, {
       method: "POST",
@@ -62,11 +65,15 @@ export async function fetchNuvioProfiles(accessToken, cloudUrl = DEFAULT_NUVIO_C
     if (rpcRes.ok) {
       const list = await rpcRes.json();
       if (Array.isArray(list) && list.length) {
-        return list.map((p, idx) => ({ id: p.id ?? p.profile_id ?? idx + 1, name: p.name || p.username || `Profile ${idx + 1}` }));
+        return list.map((p, idx) => ({
+          id: p.profile_index ?? p.id ?? idx + 1,
+          name: p.name || p.username || `Profile ${idx + 1}`
+        }));
       }
     }
   } catch {}
 
+  // 2. Fallback to direct table query
   try {
     const restRes = await fetchImpl(`${base}/rest/v1/profiles?select=*`, {
       method: "GET",
@@ -75,54 +82,67 @@ export async function fetchNuvioProfiles(accessToken, cloudUrl = DEFAULT_NUVIO_C
     if (restRes.ok) {
       const list = await restRes.json();
       if (Array.isArray(list) && list.length) {
-        return list.map((p, idx) => ({ id: p.id ?? p.profile_id ?? idx + 1, name: p.name || p.username || `Profile ${idx + 1}` }));
+        return list.map((p, idx) => ({
+          id: p.profile_index ?? p.id ?? idx + 1,
+          name: p.name || p.username || `Profile ${idx + 1}`
+        }));
       }
     }
   } catch {}
 
-  return [{ id: 1, name: "Default Profile" }];
+  return [{ id: 1, name: "Main Profile" }];
 }
 
 /**
  * Fetches user library and watched items from Nuvio Cloud for a profile.
  */
-export async function fetchNuvioLibraryRaw(accessToken, profileId = 1, cloudUrl = DEFAULT_NUVIO_CLOUD_URL, anonKey = DEFAULT_NUVIO_ANON_KEY, fetchImpl = fetch) {
+export async function fetchNuvioLibraryRaw(accessToken, profileId = 1, cloudUrl = DEFAULT_NUVIO_CLOUD_URL, anonKey = null, fetchImpl = fetch) {
   const base = String(cloudUrl || DEFAULT_NUVIO_CLOUD_URL).replace(/\/$/, "");
+  const key = getAnonKey(anonKey);
   const headers = {
     "Content-Type": "application/json",
-    "Authorization": `Bearer ${accessToken}`
+    "Authorization": `Bearer ${accessToken}`,
+    "apikey": key
   };
-  if (anonKey) {
-    headers["apikey"] = anonKey;
-  }
 
   const items = [];
+  const pIndex = Number(profileId) || 1;
 
-  // 1. Pull library items
-  try {
-    const libRes = await fetchImpl(`${base}/rest/v1/rpc/sync_pull_library`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ p_profile_id: Number(profileId) || 1, p_limit: 500, p_offset: 0 })
-    });
-    if (libRes.ok) {
-      const data = await libRes.json();
-      if (Array.isArray(data)) items.push(...data);
-      else if (Array.isArray(data?.items)) items.push(...data.items);
+  // 1. Pull library items (paginated)
+  let offset = 0;
+  const limit = 500;
+  while (offset <= 2000) {
+    try {
+      const libRes = await fetchImpl(`${base}/rest/v1/rpc/sync_pull_library`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ p_profile_id: pIndex, p_limit: limit, p_offset: offset })
+      });
+      if (libRes.ok) {
+        const data = await libRes.json();
+        const rows = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        items.push(...rows);
+        if (rows.length < limit) break;
+        offset += limit;
+      } else {
+        break;
+      }
+    } catch {
+      break;
     }
-  } catch {}
+  }
 
-  // 2. Pull watched items
+  // 2. Pull watched items (snapshot)
   try {
     const watchedRes = await fetchImpl(`${base}/rest/v1/rpc/sync_pull_watched_items`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ p_profile_id: Number(profileId) || 1, p_limit: 500, p_offset: 0 })
+      body: JSON.stringify({ p_profile_id: pIndex, p_limit: 500, p_offset: 0 })
     });
     if (watchedRes.ok) {
       const data = await watchedRes.json();
-      if (Array.isArray(data)) items.push(...data);
-      else if (Array.isArray(data?.items)) items.push(...data.items);
+      const rows = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+      items.push(...rows);
     }
   } catch {}
 
@@ -140,7 +160,7 @@ export function extractMediaFromLibrary(rawItems) {
     if (!item) continue;
     const rawId = String(item.content_id || item.id || item.tmdb_id || item.imdb_id || "").trim();
     const type = String(item.content_type || item.type || item.media_type || "").toLowerCase();
-    const name = (item.title || item.name || "").trim();
+    const name = (item.name || item.title || "").trim();
 
     const isTv = /tv|series|show|episode/.test(type) || item.season != null;
 
