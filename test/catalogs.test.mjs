@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import {
   catalogManifest,
   loadCatalog,
@@ -12,13 +13,16 @@ import {
   toMeta
 } from "../src/catalogs.mjs";
 
+const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+const APP_VERSION = String(packageMetadata.version);
+
 function response(data) {
   return { ok: true, json: async () => data };
 }
 
-test("catalog manifest exposes series and movie catalogs", () => {
-  const manifest = catalogManifest("0.3.6", "private-key");
-  assert.equal(manifest.version, "0.3.6");
+test("catalog manifest exposes series and movie catalogs matching package version", () => {
+  const manifest = catalogManifest(APP_VERSION, "private-key");
+  assert.equal(manifest.version, APP_VERSION);
   assert.deepEqual(manifest.types, ["series", "movie"]);
   assert.deepEqual(manifest.catalogs.map((item) => item.id), [
     "airing-today",
