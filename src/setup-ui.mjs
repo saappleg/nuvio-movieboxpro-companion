@@ -125,19 +125,34 @@ export function setupPage() {
     .message.error{color:var(--bad)}
     .message.ok{color:var(--good)}
     
-    .catalog-tag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:12px}
-    .catalog-tag{
+    /* Draggable Feed Items */
+    .feed-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+    .feed-item{
       background:var(--panel-sub);
       border:1px solid var(--line);
-      padding:10px 12px;
-      border-radius:10px;
+      border-radius:12px;
+      padding:10px 14px;
       display:flex;
       align-items:center;
-      gap:10px;
+      gap:12px;
+      user-select:none;
+      transition:border-color .15s,transform .15s,background-color .15s,opacity .15s;
     }
-    .catalog-tag-icon{width:28px;height:28px;border-radius:6px;background:rgba(56,189,248,0.15);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px}
-    .catalog-tag-title{font-weight:600;font-size:13px}
-    .catalog-tag-sub{font-size:11px;color:var(--muted)}
+    .feed-item.dragging{opacity:.35;border-color:var(--accent);background:var(--panel-hover)}
+    .feed-item.drag-over{border-color:var(--accent);transform:scale(1.01);box-shadow:0 0 10px var(--accent-glow)}
+    .feed-item.disabled{opacity:.5;border-color:rgba(255,255,255,0.04)}
+    .feed-drag{cursor:grab;color:var(--muted);display:flex;align-items:center;font-size:18px;padding:0 4px}
+    .feed-drag:active{cursor:grabbing}
+    .feed-badge{width:34px;height:24px;border-radius:6px;background:rgba(56,189,248,0.12);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;flex-shrink:0}
+    .feed-info{flex:1;min-width:0}
+    .feed-title{font-weight:600;font-size:14px;color:var(--text)}
+    .feed-desc{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .feed-actions{display:flex;align-items:center;gap:8px}
+    .feed-btn{padding:4px 8px;font-size:11px;background:var(--panel);border:1px solid var(--line);border-radius:6px;cursor:pointer;color:var(--muted)}
+    .feed-btn:hover:not(:disabled){color:var(--text);border-color:var(--muted)}
+    .feed-btn:disabled{opacity:.3;cursor:not-allowed}
+    .feed-toggle{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--muted);margin:0}
+    .feed-toggle input{width:16px;height:16px;margin:0;cursor:pointer;accent-color:var(--accent)}
     
     ol{color:var(--muted);padding-left:20px;margin:10px 0}
     li{margin-bottom:8px}
@@ -218,28 +233,20 @@ export function setupPage() {
         <h2>4. Nuvio Cloud Sync</h2>
         <div class="status"><span id="cloudStatusText">Not connected</span></div>
       </div>
-      <p>Connect your Nuvio Cloud account to sync your library and generate smart recommendations.</p>
-      <div id="cloudLoginForm">
-        <div class="row">
-          <div style="flex:1">
-            <label for="cloudEmail">Nuvio Email</label>
-            <input id="cloudEmail" type="email" placeholder="user@example.com" autocomplete="username">
-          </div>
-          <div style="flex:1">
-            <label for="cloudPass">Nuvio Password</label>
-            <input id="cloudPass" type="password" placeholder="••••••••" autocomplete="current-password">
-          </div>
-        </div>
+      <p>Connect your Nuvio Cloud account to automatically synchronize library series & movies for recommendations.</p>
+      <div id="cloudAuthForm">
+        <label for="cloudEmail">Nuvio Cloud Email</label>
+        <input id="cloudEmail" type="email" placeholder="you@domain.com">
+        <label for="cloudPass">Password</label>
+        <input id="cloudPass" type="password" placeholder="••••••••">
         <div class="row" style="margin-top:14px">
-          <button id="loginCloud">Connect Nuvio Cloud</button>
+          <button id="loginCloud">Connect & Sync</button>
         </div>
       </div>
-      <div id="cloudConnectedSection" style="display:none">
-        <div style="background:var(--panel-sub);padding:12px;border-radius:10px;border:1px solid var(--line);margin-bottom:12px">
-          <div style="font-size:13px;font-weight:600" id="cloudAccountUser">Connected User</div>
-          <div style="font-size:12px;color:var(--muted)" id="cloudSyncStats">Last Synced: Never</div>
-        </div>
-        <div class="row">
+      <div id="cloudConnectedView" style="display:none">
+        <p><strong id="cloudUserEmail"></strong> (<span id="cloudProfileName">Default Profile</span>)</p>
+        <p class="status">Last synced: <span id="cloudLastSync">Never</span></p>
+        <div class="row" style="margin-top:14px">
           <button id="syncCloud">Sync Library Now</button>
           <button class="secondary danger" id="disconnectCloud">Disconnect</button>
         </div>
@@ -247,12 +254,13 @@ export function setupPage() {
       <div class="message" id="cloudMessage"></div>
     </article>
 
-    <!-- 5. Stream Source in Nuvio -->
+    <!-- 5. MovieBox Stream Provider Plugin -->
     <article class="card">
       <div class="card-header">
-        <h2>5. Stream Source (MovieBoxPro)</h2>
+        <h2>5. MovieBox Stream Provider</h2>
+        <span class="badge">Nuvio Scraper</span>
       </div>
-      <p>Add MovieBoxPro as a stream scraper in your Nuvio setup.</p>
+      <p>Add MovieBoxPro as a stream source for movies & TV series inside Nuvio.</p>
       <div class="row">
         <button id="revealPlugin">Reveal Provider URL</button>
         <button class="secondary" id="copyPlugin" hidden>Copy URL</button>
@@ -261,12 +269,13 @@ export function setupPage() {
       <div class="message" id="pluginMessage"></div>
     </article>
 
-    <!-- 6. Calendar & Discovery Add-on -->
+    <!-- 6. Calendar & Recommended Add-on -->
     <article class="card">
       <div class="card-header">
         <h2>6. Discovery & Calendar Add-on</h2>
+        <span class="badge">Stremio/Nuvio Catalog</span>
       </div>
-      <p>Add Airing Today, This Week, New Releases, and Recommendations to Nuvio.</p>
+      <p>Feeds Airing Today, This Week, New & Returning, and personalized recommendations.</p>
       <div class="row">
         <button id="revealCatalog">Reveal Add-on URL</button>
         <button class="secondary" id="copyCatalog" hidden>Copy URL</button>
@@ -275,62 +284,29 @@ export function setupPage() {
       <div class="message" id="catalogMessage"></div>
     </article>
 
-    <!-- 7. Included Discovery Catalogs Overview -->
+    <!-- 7. Included Discovery Catalogs Overview & Customizer -->
     <article class="card wide">
       <div class="card-header">
-        <h2>Active Discovery & Calendar Feeds</h2>
+        <h2>7. Active Discovery & Calendar Feeds</h2>
+        <span class="badge">Drag & Drop / Re-order</span>
       </div>
-      <p>The companion dynamically serves these rows directly into Nuvio's home and catalog views:</p>
-      <div class="catalog-tag-grid">
-        <div class="catalog-tag">
-          <div class="catalog-tag-icon">MOV</div>
-          <div>
-            <div class="catalog-tag-title">Now Playing</div>
-            <div class="catalog-tag-sub">In theaters & digital now</div>
-          </div>
-        </div>
-        <div class="catalog-tag">
-          <div class="catalog-tag-icon">TV</div>
-          <div>
-            <div class="catalog-tag-title">New Today - Library Based</div>
-            <div class="catalog-tag-sub">Airing today from your library</div>
-          </div>
-        </div>
-        <div class="catalog-tag">
-          <div class="catalog-tag-icon">TV</div>
-          <div>
-            <div class="catalog-tag-title">New Series</div>
-            <div class="catalog-tag-sub">Trending recent TV series</div>
-          </div>
-        </div>
-        <div class="catalog-tag">
-          <div class="catalog-tag-icon">TV</div>
-          <div>
-            <div class="catalog-tag-title">Recommended Series</div>
-            <div class="catalog-tag-sub">Personalized TV recommendations</div>
-          </div>
-        </div>
-        <div class="catalog-tag">
-          <div class="catalog-tag-icon">MOV</div>
-          <div>
-            <div class="catalog-tag-title">New Movies</div>
-            <div class="catalog-tag-sub">Recent & upcoming movie releases</div>
-          </div>
-        </div>
-        <div class="catalog-tag">
-          <div class="catalog-tag-icon">MOV</div>
-          <div>
-            <div class="catalog-tag-title">Recommended Movies</div>
-            <div class="catalog-tag-sub">Personalized movie recommendations</div>
-          </div>
-        </div>
+      <p>Customize which feeds are published to Nuvio and their display order. Drag rows or use the arrow buttons to rearrange, then toggle feeds on or off:</p>
+      
+      <div id="feedList" class="feed-list">
+        <!-- Dynamically rendered draggable list of feeds -->
       </div>
+
+      <div class="row" style="margin-top:16px">
+        <button id="saveFeeds">Save Feeds Layout</button>
+        <button class="secondary" id="resetFeeds">Reset to Default</button>
+      </div>
+      <div class="message" id="feedsMessage"></div>
     </article>
 
     <!-- 8. Manual Seeds (Optional Customization) -->
     <article class="card wide">
       <div class="card-header">
-        <h2>Manual Recommendation Seeds (Optional)</h2>
+        <h2>8. Manual Recommendation Seeds (Optional)</h2>
       </div>
       <p>If you prefer manual recommendations instead of or in addition to Nuvio Cloud library sync:</p>
       <div class="row">
@@ -338,120 +314,209 @@ export function setupPage() {
           <label for="seedShows">Favorite TV Shows (commas or newlines)</label>
           <textarea id="seedShows" rows="3" placeholder="King of the Hill, Severance, The Bear"></textarea>
           <div class="row" style="margin-top:10px">
-            <button id="saveSeeds">Save TV Seeds</button>
+            <button class="secondary" id="saveSeeds">Save TV Seeds</button>
           </div>
         </div>
         <div style="flex:1;min-width:280px">
           <label for="seedMovies">Favorite Movies (commas or newlines)</label>
-          <textarea id="seedMovies" rows="3" placeholder="Dune, Inception, Interstellar"></textarea>
+          <textarea id="seedMovies" rows="3" placeholder="Inception, Interstellar, The Dark Knight"></textarea>
           <div class="row" style="margin-top:10px">
-            <button id="saveMovieSeeds">Save Movie Seeds</button>
+            <button class="secondary" id="saveMovieSeeds">Save Movie Seeds</button>
           </div>
         </div>
       </div>
       <div class="message" id="manualSeedsMessage"></div>
     </article>
-
-    <!-- 9. Final Instructions -->
-    <article class="card wide">
-      <div class="card-header">
-        <h2>Nuvio Device Setup Guide</h2>
-      </div>
-      <ol>
-        <li>Open <strong>Nuvio Web Dashboard</strong> (or your Android TV app settings).</li>
-        <li>Under <strong>Plugins / Providers</strong>: Add the <strong>Provider URL</strong> revealed above.</li>
-        <li>Under <strong>Add-ons</strong>: Add the <strong>Discovery & Calendar Add-on URL</strong> revealed above.</li>
-        <li>Refresh plugins and restart Nuvio on Android TV or mobile to populate the new catalogs and stream sources.</li>
-      </ol>
-      <div class="row" style="margin-top:16px">
-        <button class="secondary" id="logout">Lock Dashboard Session</button>
-      </div>
-    </article>
   </section>
 
   <footer>
-    MovieBoxPro Local Companion & Discovery Hub for Nuvio. Keep credentials private on your local server.
+    <p>MovieBoxPro Companion &bull; Safe, private, self-hosted streaming hub for Nuvio.</p>
+    <div style="margin-top:12px">
+      <button class="secondary" id="logoutBtn" style="padding:6px 12px;font-size:12px">Lock Dashboard Session</button>
+    </div>
   </footer>
 </main>
 
 <script>
+(() => {
   const q = (id) => document.getElementById(id);
-  let pluginValue = '', catalogValue = '';
-
-  function msg(id, text, type = '') {
-    q(id).textContent = text;
-    q(id).className = 'message ' + type;
-  }
-
-  function dot(id, state) {
+  const msg = (id, text, type = '') => {
     const el = q(id);
     if (!el) return;
-    el.className = 'dot ' + (state === true ? 'good' : state === false ? 'bad' : '');
-  }
+    el.textContent = text || '';
+    el.className = 'message ' + type;
+  };
+  const dot = (id, good) => {
+    const el = q(id);
+    if (el) el.className = 'dot ' + (good ? 'good' : 'bad');
+  };
 
-  async function copyText(value, fieldId = 'pluginUrl') {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      try { await navigator.clipboard.writeText(value); return; } catch {}
-    }
-    const field = q(fieldId);
-    field.focus();
-    field.select();
-    field.setSelectionRange(0, value.length);
-    if (!document.execCommand || !document.execCommand('copy')) throw new Error('Copy unavailable');
-  }
+  q('logoutBtn').onclick = async () => {
+    try {
+      await api('/api/setup/logout', { method: 'POST' });
+      window.location.reload();
+    } catch {}
+  };
 
-  async function api(path, options = {}) {
-    const r = await fetch(path, {
-      ...options,
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+  let pluginValue = '';
+  let catalogValue = '';
+  let feedsData = [];
+
+  function renderFeeds() {
+    const list = q('feedList');
+    if (!list) return;
+    list.innerHTML = '';
+    feedsData.forEach((feed, idx) => {
+      const item = document.createElement('div');
+      item.className = 'feed-item' + (feed.enabled ? '' : ' disabled');
+      item.draggable = true;
+      item.dataset.index = idx;
+      item.innerHTML = \`
+        <span class="feed-drag" title="Drag to reorder">⋮⋮</span>
+        <span class="feed-badge">\${feed.type === 'movie' ? 'MOV' : 'TV'}</span>
+        <div class="feed-info">
+          <div class="feed-title">\${feed.name}</div>
+          <div class="feed-desc">\${feed.description || ''}</div>
+        </div>
+        <div class="feed-actions">
+          <button type="button" class="feed-btn up-btn" title="Move Up" \${idx === 0 ? 'disabled' : ''}>▲</button>
+          <button type="button" class="feed-btn down-btn" title="Move Down" \${idx === feedsData.length - 1 ? 'disabled' : ''}>▼</button>
+          <label class="feed-toggle">
+            <input type="checkbox" class="feed-check" \${feed.enabled ? 'checked' : ''}>
+            <span>\${feed.enabled ? 'On' : 'Off'}</span>
+          </label>
+        </div>
+      \`;
+
+      // Up / Down
+      item.querySelector('.up-btn').onclick = (e) => {
+        e.stopPropagation();
+        if (idx > 0) {
+          const temp = feedsData[idx - 1];
+          feedsData[idx - 1] = feedsData[idx];
+          feedsData[idx] = temp;
+          renderFeeds();
+        }
+      };
+      item.querySelector('.down-btn').onclick = (e) => {
+        e.stopPropagation();
+        if (idx < feedsData.length - 1) {
+          const temp = feedsData[idx + 1];
+          feedsData[idx + 1] = feedsData[idx];
+          feedsData[idx] = temp;
+          renderFeeds();
+        }
+      };
+
+      // Toggle
+      const chk = item.querySelector('.feed-check');
+      chk.onchange = () => {
+        feed.enabled = chk.checked;
+        renderFeeds();
+      };
+
+      // Drag & Drop
+      item.ondragstart = (e) => {
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(idx));
+      };
+      item.ondragend = () => {
+        item.classList.remove('dragging');
+        list.querySelectorAll('.feed-item').forEach(el => el.classList.remove('drag-over'));
+      };
+      item.ondragover = (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        item.classList.add('drag-over');
+      };
+      item.ondragleave = () => {
+        item.classList.remove('drag-over');
+      };
+      item.ondrop = (e) => {
+        e.preventDefault();
+        item.classList.remove('drag-over');
+        const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+        const toIdx = idx;
+        if (!isNaN(fromIdx) && fromIdx !== toIdx) {
+          const moved = feedsData.splice(fromIdx, 1)[0];
+          feedsData.splice(toIdx, 0, moved);
+          renderFeeds();
+        }
+      };
+
+      list.appendChild(item);
     });
-    const d = r.status === 204 ? {} : await r.json();
-    if (!r.ok) throw new Error(d.error || ('Request failed: ' + r.status));
-    return d;
+  }
+
+  async function copyText(text, fallbackId) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const input = q(fallbackId);
+    if (!input) throw new Error('Clipboard access denied');
+    input.focus();
+    input.select();
+    const ok = document.execCommand('copy');
+    if (!ok) throw new Error('Copy failed');
+  }
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, { credentials: 'same-origin', ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed (' + res.status + ')' }));
+      throw new Error(err.error || 'Server returned status ' + res.status);
+    }
+    return res.json().catch(() => ({}));
   }
 
   async function loadState() {
-    let s;
     try {
-      s = await api('/api/setup/state');
-    } catch (e) {
-      q('serviceBadge').innerHTML = '<span class="dot bad"></span> Service Unavailable';
-      return;
-    }
-
-    try {
-      q('serviceBadge').innerHTML = '<span class="dot good"></span> Service: ' + (s.publicUrl || s.host + ':' + s.port);
-      q('serviceText').textContent = s.host + ':' + s.port;
-      if (s.publicUrl) q('publicUrl').value = s.publicUrl;
-
-      dot('tmdbDot', Boolean(s.tmdbConfigured));
-      q('tmdbText').textContent = s.tmdbConfigured ? 'Key Saved' : 'Key Required';
-
-      q('seedShows').value = (s.recommendationSeeds || []).map(x => x.name).join(', ');
-      q('seedMovies').value = (s.movieRecommendationSeeds || []).map(x => x.name).join(', ');
+      const s = await api('/api/setup/state');
+      q('publicUrl').value = s.publicUrl || '';
+      dot('tmdbDot', s.tmdbConfigured);
+      q('tmdbText').textContent = s.tmdbConfigured ? 'Key Saved' : 'Key Missing';
+      
+      const isConfigured = s.companionKeyConfigured && s.pluginKeyConfigured;
+      const addrDisplay = s.publicUrl ? s.publicUrl.replace(/^https?:\\/\\//, '') : 'Ready';
+      q('serviceBadge').innerHTML = '<span class="dot ' + (isConfigured ? 'good' : 'warn') + '"></span> ' + (isConfigured ? 'Online (' + addrDisplay + ')' : 'Setup Incomplete');
+      q('serviceText').textContent = isConfigured ? 'Configured & Online' : 'Action Required';
 
       if (s.docker) {
         q('novnc').hidden = false;
         q('novnc').href = s.noVncUrl;
       }
 
-      // Nuvio Cloud State
-      if (s.nuvioCloud && s.nuvioCloud.connected) {
+      if (Array.isArray(s.recommendationSeeds)) {
+        q('seedShows').value = s.recommendationSeeds.map(x => x.name).join(', ');
+      }
+      if (Array.isArray(s.movieRecommendationSeeds)) {
+        q('seedMovies').value = s.movieRecommendationSeeds.map(x => x.name).join(', ');
+      }
+
+      // Feeds Customizer
+      if (Array.isArray(s.catalogsConfig)) {
+        feedsData = s.catalogsConfig;
+        renderFeeds();
+      }
+
+      if (s.nuvioCloud?.connected) {
+        q('cloudAuthForm').style.display = 'none';
+        q('cloudConnectedView').style.display = 'block';
+        q('cloudUserEmail').textContent = s.nuvioCloud.email;
+        q('cloudProfileName').textContent = s.nuvioCloud.profileName || 'Default Profile';
+        q('cloudLastSync').textContent = s.nuvioCloud.lastSync ? new Date(s.nuvioCloud.lastSync).toLocaleString() : 'Never';
         q('cloudStatusText').textContent = 'Connected';
         q('nuvioCloudBadge').innerHTML = '<span class="dot good"></span> Nuvio Cloud: Connected';
-        q('cloudLoginForm').style.display = 'none';
-        q('cloudConnectedSection').style.display = 'block';
-        q('cloudAccountUser').textContent = 'User: ' + (s.nuvioCloud.email || 'Connected Account');
-        const syncTime = s.nuvioCloud.lastSync ? new Date(s.nuvioCloud.lastSync).toLocaleString() : 'Never';
-        q('cloudSyncStats').textContent = 'Profile: ' + (s.nuvioCloud.profileName || 'Main') + ' • Synced: ' + syncTime;
       } else {
-        q('cloudStatusText').textContent = 'Disconnected';
-        q('nuvioCloudBadge').innerHTML = '<span class="dot"></span> Nuvio Cloud: Disconnected';
-        q('cloudLoginForm').style.display = 'block';
-        q('cloudConnectedSection').style.display = 'none';
+        q('cloudAuthForm').style.display = 'block';
+        q('cloudConnectedView').style.display = 'none';
+        q('cloudStatusText').textContent = 'Not connected';
+        q('nuvioCloudBadge').innerHTML = '<span class="dot bad"></span> Nuvio Cloud: Not Connected';
       }
     } catch (e) {
-      console.error(e);
+      msg('configMessage', 'Failed to load companion state: ' + e.message, 'error');
     }
   }
 
@@ -578,6 +643,41 @@ export function setupPage() {
     }
   };
 
+  q('saveFeeds').onclick = async () => {
+    try {
+      q('saveFeeds').disabled = true;
+      const clean = feedsData.map(f => ({ id: f.id, enabled: Boolean(f.enabled) }));
+      const d = await api('/api/setup/catalogs-config', {
+        method: 'POST',
+        body: JSON.stringify({ catalogs: clean })
+      });
+      feedsData = d.catalogs || clean;
+      renderFeeds();
+      msg('feedsMessage', 'Feed order and active toggles saved! Refresh or re-add the add-on in Nuvio to apply.', 'ok');
+    } catch (e) {
+      msg('feedsMessage', e.message, 'error');
+    } finally {
+      q('saveFeeds').disabled = false;
+    }
+  };
+
+  q('resetFeeds').onclick = async () => {
+    try {
+      q('resetFeeds').disabled = true;
+      const d = await api('/api/setup/catalogs-config', {
+        method: 'POST',
+        body: JSON.stringify({ catalogs: [] })
+      });
+      feedsData = d.catalogs;
+      renderFeeds();
+      msg('feedsMessage', 'Reset to default order and active feeds.', 'ok');
+    } catch (e) {
+      msg('feedsMessage', e.message, 'error');
+    } finally {
+      q('resetFeeds').disabled = false;
+    }
+  };
+
   q('saveSeeds').onclick = async () => {
     try {
       q('saveSeeds').disabled = true;
@@ -598,12 +698,8 @@ export function setupPage() {
     finally { q('saveMovieSeeds').disabled = false; }
   };
 
-  q('logout').onclick = async () => {
-    await api('/api/setup/logout', { method: 'POST' });
-    location.reload();
-  };
-
   loadState();
+})();
 </script>
 </body>
 </html>`;

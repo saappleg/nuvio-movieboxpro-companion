@@ -37,7 +37,139 @@ function uniqueMetas(items, defaultType = "series") {
   return items.map((item) => toMeta(item, defaultType)).filter((item) => item && !seen.has(item.id) && seen.add(item.id));
 }
 
-export function catalogManifest(version, key) {
+export const ALL_AVAILABLE_CATALOGS = [
+  {
+    type: "movie",
+    id: "now-playing",
+    name: "Now Playing",
+    description: "In theaters & digital now",
+    extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+    extraSupported: ["search", "skip"],
+    defaultEnabled: true
+  },
+  {
+    type: "series",
+    id: "library-today",
+    name: "New Today - Library Based",
+    description: "Airing today from your library",
+    extra: [{ name: "skip", isRequired: false }],
+    extraSupported: ["skip"],
+    defaultEnabled: true
+  },
+  {
+    type: "series",
+    id: "new-series",
+    name: "New Series",
+    description: "Trending recent TV series",
+    extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+    extraSupported: ["search", "skip"],
+    defaultEnabled: true
+  },
+  {
+    type: "series",
+    id: "recommended-series",
+    name: "Recommended Series",
+    description: "Personalized TV recommendations",
+    extra: [{ name: "skip", isRequired: false }],
+    extraSupported: ["skip"],
+    defaultEnabled: true
+  },
+  {
+    type: "movie",
+    id: "new-movies",
+    name: "New Movies",
+    description: "Recent & upcoming movie releases",
+    extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+    extraSupported: ["search", "skip"],
+    defaultEnabled: true
+  },
+  {
+    type: "movie",
+    id: "recommended-movies",
+    name: "Recommended Movies",
+    description: "Personalized movie recommendations",
+    extra: [{ name: "skip", isRequired: false }],
+    extraSupported: ["skip"],
+    defaultEnabled: true
+  },
+  {
+    type: "series",
+    id: "this-week",
+    name: "This Week (TV)",
+    description: "Upcoming broadcast & streaming TV this week",
+    extra: [{ name: "skip", isRequired: false }],
+    extraSupported: ["skip"],
+    defaultEnabled: false
+  },
+  {
+    type: "series",
+    id: "new-returning",
+    name: "New & Returning",
+    description: "Premieres & new seasons",
+    extra: [{ name: "skip", isRequired: false }],
+    extraSupported: ["skip"],
+    defaultEnabled: false
+  },
+  {
+    type: "movie",
+    id: "this-week-movies",
+    name: "This Week (Movies)",
+    description: "Movie releases arriving this week",
+    extra: [{ name: "skip", isRequired: false }],
+    extraSupported: ["skip"],
+    defaultEnabled: false
+  },
+  {
+    type: "series",
+    id: "airing-today",
+    name: "Airing Today (Global)",
+    description: "All broadcast TV episodes airing today worldwide",
+    extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+    extraSupported: ["search", "skip"],
+    defaultEnabled: false
+  }
+];
+
+export function parseCatalogConfig(value = process.env.DISCOVERY_CATALOGS_CONFIG) {
+  const byId = new Map(ALL_AVAILABLE_CATALOGS.map((c) => [c.id, c]));
+  if (value) {
+    try {
+      const parsed = typeof value === "string" ? JSON.parse(value) : value;
+      if (Array.isArray(parsed) && parsed.length) {
+        const result = [];
+        const seen = new Set();
+        for (const item of parsed) {
+          const id = typeof item === "string" ? item : item?.id;
+          if (id && byId.has(id) && !seen.has(id)) {
+            seen.add(id);
+            const def = byId.get(id);
+            const enabled = item.enabled !== undefined ? Boolean(item.enabled) : (item.enabled ?? def.defaultEnabled);
+            result.push({ ...def, enabled });
+          }
+        }
+        for (const cat of ALL_AVAILABLE_CATALOGS) {
+          if (!seen.has(cat.id)) {
+            result.push({ ...cat, enabled: false });
+          }
+        }
+        return result;
+      }
+    } catch {}
+  }
+  return ALL_AVAILABLE_CATALOGS.map((c) => ({ ...c, enabled: Boolean(c.defaultEnabled) }));
+}
+
+export function catalogManifest(version, key, config = parseCatalogConfig()) {
+  const activeCatalogs = (Array.isArray(config) ? config : parseCatalogConfig(config))
+    .filter((c) => c && c.enabled !== false)
+    .map((c) => ({
+      type: c.type,
+      id: c.id,
+      name: c.name,
+      extra: c.extra,
+      extraSupported: c.extraSupported
+    }));
+
   return {
     id: "community.nuvio.companion.calendar",
     version,
@@ -46,50 +178,7 @@ export function catalogManifest(version, key) {
     resources: ["catalog", "meta"],
     types: ["movie", "series"],
     idPrefixes: ["tmdb:", "tt"],
-    catalogs: [
-      {
-        type: "movie",
-        id: "now-playing",
-        name: "Now Playing",
-        extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
-        extraSupported: ["search", "skip"]
-      },
-      {
-        type: "series",
-        id: "library-today",
-        name: "New Today - Library Based",
-        extra: [{ name: "skip", isRequired: false }],
-        extraSupported: ["skip"]
-      },
-      {
-        type: "series",
-        id: "new-series",
-        name: "New Series",
-        extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
-        extraSupported: ["search", "skip"]
-      },
-      {
-        type: "series",
-        id: "recommended-series",
-        name: "Recommended Series",
-        extra: [{ name: "skip", isRequired: false }],
-        extraSupported: ["skip"]
-      },
-      {
-        type: "movie",
-        id: "new-movies",
-        name: "New Movies",
-        extra: [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
-        extraSupported: ["search", "skip"]
-      },
-      {
-        type: "movie",
-        id: "recommended-movies",
-        name: "Recommended Movies",
-        extra: [{ name: "skip", isRequired: false }],
-        extraSupported: ["skip"]
-      }
-    ],
+    catalogs: activeCatalogs,
     behaviorHints: { configurable: false, configurationRequired: false }
   };
 }
