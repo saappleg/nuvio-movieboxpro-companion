@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0-beta.1 (v1 Beta Release)
+
+- **Official v1 Beta Release** for Nuvio MovieBoxPro Companion & Discovery Hub.
+- **Full MovieBoxPro Streaming Support**: Provides MovieBoxPro as a stream source in Nuvio with on-demand links, quality selection (4K/1080p/720p/360p), and subtitles.
+- **Customizable Discovery & Calendar Add-on**:
+  - Interactive Drag & Drop catalog reordering and individual ON/OFF toggles in the setup dashboard.
+  - Feeds include: Now Playing, New Today - Library Based, New Series, Recommended Series, New Movies, Recommended Movies, This Week, New & Returning, and Airing Today.
+  - "New Today - Library Based" feed dynamically monitors your library for episodes airing today and cleanly hides when empty.
+- **Full Episode Breakdown for Series**: Complete TV series details with episode thumbnails, titles, season/episode numbering, air dates, and overviews.
+- **Universal Search & IMDb Lookups**: Search movies and series by title or direct IMDb ID (`tt...`) with full catalog pagination.
+- **Nuvio Cloud Library Sync**: Connect and synchronize your Nuvio Cloud library and watch history to generate tailored recommendations.
+- **Guided Setup Dashboard & Proxmox VE / Docker Deployments**: 1-click installer for Proxmox VE Community Scripts LXC and multi-arch Docker containers.
+
 ## 0.3.15
 
 - Built-in universal search across all movie and TV catalogs in Nuvio.
