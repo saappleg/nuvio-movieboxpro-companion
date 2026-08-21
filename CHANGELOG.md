@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.9
+
+- Harden dashboard status parsing and display companion public address in status badge.
+- Update Nuvio Cloud authentication with official publishable client key and enhanced error reporting.
+
 ## 0.3.8
 
 - Update Nuvio Cloud authentication with official publishable client key and enhanced error reporting.
