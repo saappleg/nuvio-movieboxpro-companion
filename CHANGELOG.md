@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-beta.2 (v1 Beta 2)
+
+- **IntroDB (api.introdb.app) Integration**: Automatically fetch crowdsourced intro, outro, and recap timestamps for TV series episodes.
+- **Stream Segment Enrichment**: Enrich TV playback stream responses with `intro`, `outro`, `recap`, and `segments` timestamp metadata for seamless skip intro buttons in Nuvio and compatible players.
+- **IntroDB Proxy & TMDb ID Resolution**: Built-in `/intro` and `/api/introdb/segments` endpoints with TMDb-to-IMDb ID resolution and 24-hour in-memory caching.
+- **Dashboard Status Badge**: Added IntroDB Active status indicator to setup dashboard hero bar.
+
 ## 1.0.0-beta.1 (v1 Beta Release)
 
 - **Official v1 Beta Release** for Nuvio MovieBoxPro Companion & Discovery Hub.

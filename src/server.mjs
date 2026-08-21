@@ -28,6 +28,11 @@ import {
   fetchNuvioProfiles,
   syncNuvioCloudLibrary
 } from "./nuvio-cloud.mjs";
+import {
+  resolveImdbIdForShow,
+  fetchIntroSegments,
+  attachIntroSegmentsToStreams
+} from "./introdb.mjs";
 
 const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const APP_VERSION = String(packageMetadata.version);
@@ -589,7 +594,20 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, await serializeBrowserWork(browserSessionStatus));
     }
 
-    // 6. Streams API (Requested by Nuvio Scraper)
+    // 6. IntroDB Skip Intro Segments API
+    if (url.pathname === "/intro" || url.pathname === "/api/introdb/segments") {
+      const rawTmdbId = String(url.searchParams.get("tmdbId") || url.searchParams.get("imdb_id") || url.searchParams.get("imdbId") || "");
+      const season = url.searchParams.get("season");
+      const episode = url.searchParams.get("episode");
+      if (!rawTmdbId || !season || !episode) return sendJson(res, 400, { error: "Missing imdb_id/tmdbId, season, or episode" });
+      const imdbId = /^tt\d+$/i.test(rawTmdbId) ? rawTmdbId.toLowerCase() : await resolveImdbIdForShow(rawTmdbId, process.env.TMDB_API_KEY, fetch);
+      if (!imdbId) return sendJson(res, 404, { error: "Could not resolve IMDb ID for this title" });
+      const segments = await fetchIntroSegments({ imdbId, season, episode }, fetch);
+      if (!segments) return sendJson(res, 404, { error: "No IntroDB segments found for this episode" });
+      return sendJson(res, 200, segments);
+    }
+
+    // 7. Streams API (Requested by Nuvio Scraper)
     if (url.pathname !== "/streams" || req.method !== "GET") return sendJson(res, 404, { error: "Not found" });
 
     requireConfig();
@@ -611,11 +629,29 @@ const server = http.createServer(async (req, res) => {
     }
     console.log(`[companion] stream request tmdb=${params.tmdbId} type=${params.mediaType}` +
       (params.mediaType === "tv" ? ` season=${Number(params.season)} episode=${Number(params.episode)}` : ""));
-    return sendJson(res, 200, await withTimeout(
+
+    const resolvedStreams = await withTimeout(
       serializeBrowserWork(() => resolveStreams(params)),
       Number(process.env.STREAM_TIMEOUT_MS || 45000),
       "Stream lookup timed out"
-    ));
+    );
+
+    // Enrich TV series streams with IntroDB skip segments (intro, outro, recap)
+    if (params.mediaType === "tv" && Array.isArray(resolvedStreams) && resolvedStreams.length) {
+      try {
+        const imdbId = /^tt\d+$/i.test(params.tmdbId) ? params.tmdbId : await resolveImdbIdForShow(params.tmdbId, process.env.TMDB_API_KEY, fetch);
+        if (imdbId) {
+          const segments = await fetchIntroSegments({ imdbId, season: params.season, episode: params.episode }, fetch);
+          if (segments) {
+            return sendJson(res, 200, attachIntroSegmentsToStreams(resolvedStreams, segments));
+          }
+        }
+      } catch (introError) {
+        console.warn(`[companion] IntroDB segment lookup failed: ${introError.message}`);
+      }
+    }
+
+    return sendJson(res, 200, resolvedStreams);
   } catch (error) {
     console.error(`[companion] ${error.message}`);
     return sendJson(res, 502, { error: error.message });
