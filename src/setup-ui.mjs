@@ -160,9 +160,9 @@ export function setupPage() {
       <p class="lead">Bridge MovieBoxPro playback into Nuvio, discover Calendar releases and new movies/series, and sync with Nuvio Cloud for smart library-driven recommendations.</p>
     </div>
     <div class="badge-bar">
-      <div class="badge" id="serviceBadge"><span class="dot" id="serviceDot"></span> Service: Checking…</div>
-      <div class="badge" id="mbpBadge"><span class="dot" id="movieboxDot"></span> MovieBoxPro: Checking…</div>
-      <div class="badge" id="nuvioCloudBadge"><span class="dot" id="cloudDot"></span> Nuvio Cloud: Checking…</div>
+      <div class="badge" id="serviceBadge"><span class="dot"></span> Service: Initializing…</div>
+      <div class="badge" id="mbpBadge"><span class="dot"></span> MovieBoxPro: Checking…</div>
+      <div class="badge" id="nuvioCloudBadge"><span class="dot"></span> Nuvio Cloud: Checking…</div>
     </div>
   </section>
 
@@ -398,7 +398,9 @@ export function setupPage() {
   }
 
   function dot(id, state) {
-    q(id).className = 'dot ' + (state === true ? 'good' : state === false ? 'bad' : '');
+    const el = q(id);
+    if (!el) return;
+    el.className = 'dot ' + (state === true ? 'good' : state === false ? 'bad' : '');
   }
 
   async function copyText(value, fieldId = 'pluginUrl') {
@@ -423,14 +425,20 @@ export function setupPage() {
   }
 
   async function loadState() {
+    let s;
     try {
-      const s = await api('/api/setup/state');
-      q('serviceBadge').innerHTML = '<span class="dot good"></span> Service: ' + s.host + ':' + s.port;
-      q('serviceText').textContent = s.host + ':' + s.port;
-      dot('serviceDot', true);
-      q('publicUrl').value = s.publicUrl;
+      s = await api('/api/setup/state');
+    } catch (e) {
+      q('serviceBadge').innerHTML = '<span class="dot bad"></span> Service Unavailable';
+      return;
+    }
 
-      dot('tmdbDot', s.tmdbConfigured);
+    try {
+      q('serviceBadge').innerHTML = '<span class="dot good"></span> Service: ' + (s.publicUrl || s.host + ':' + s.port);
+      q('serviceText').textContent = s.host + ':' + s.port;
+      if (s.publicUrl) q('publicUrl').value = s.publicUrl;
+
+      dot('tmdbDot', Boolean(s.tmdbConfigured));
       q('tmdbText').textContent = s.tmdbConfigured ? 'Key Saved' : 'Key Required';
 
       q('seedShows').value = (s.recommendationSeeds || []).map(x => x.name).join(', ');
@@ -443,23 +451,21 @@ export function setupPage() {
 
       // Nuvio Cloud State
       if (s.nuvioCloud && s.nuvioCloud.connected) {
-        dot('cloudDot', true);
         q('cloudStatusText').textContent = 'Connected';
         q('nuvioCloudBadge').innerHTML = '<span class="dot good"></span> Nuvio Cloud: Connected';
         q('cloudLoginForm').style.display = 'none';
         q('cloudConnectedSection').style.display = 'block';
         q('cloudAccountUser').textContent = 'User: ' + (s.nuvioCloud.email || 'Connected Account');
-        q('cloudSyncStats').textContent = 'Profile: ' + s.nuvioCloud.profileName + (s.nuvioCloud.lastSync ? ' • Synced: ' + new Date(s.nuvioCloud.lastSync).toLocaleString() : '');
+        const syncTime = s.nuvioCloud.lastSync ? new Date(s.nuvioCloud.lastSync).toLocaleString() : 'Never';
+        q('cloudSyncStats').textContent = 'Profile: ' + (s.nuvioCloud.profileName || 'Main') + ' • Synced: ' + syncTime;
       } else {
-        dot('cloudDot', false);
         q('cloudStatusText').textContent = 'Disconnected';
         q('nuvioCloudBadge').innerHTML = '<span class="dot"></span> Nuvio Cloud: Disconnected';
         q('cloudLoginForm').style.display = 'block';
         q('cloudConnectedSection').style.display = 'none';
       }
     } catch (e) {
-      q('serviceBadge').innerHTML = '<span class="dot bad"></span> Service Unavailable';
-      dot('serviceDot', false);
+      console.error(e);
     }
   }
 
@@ -493,12 +499,10 @@ export function setupPage() {
     try {
       q('checkLogin').disabled = true;
       const s = await api('/api/setup/moviebox-status');
-      dot('movieboxDot', s.authenticated);
       q('movieboxText').textContent = s.authenticated ? 'Authenticated' : 'Login Required';
       q('mbpBadge').innerHTML = '<span class="dot ' + (s.authenticated ? 'good' : 'bad') + '"></span> MovieBoxPro: ' + (s.authenticated ? 'Connected' : 'Login Required');
       msg('loginMessage', s.authenticated ? 'MovieBoxPro session is active and ready.' : 'Session not detected. Complete login and check again.', s.authenticated ? 'ok' : 'error');
     } catch (e) {
-      dot('movieboxDot', false);
       msg('loginMessage', e.message, 'error');
     } finally { q('checkLogin').disabled = false; }
   };
