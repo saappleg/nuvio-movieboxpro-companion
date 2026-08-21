@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.7
+
+- Add Nuvio Cloud library synchronization for dynamic TV and movie recommendations.
+- Expand Discovery & Calendar Add-on with Airing Today, This Week (TV & Movies), New & Returning, New Series, New Movies, and Recommended feeds.
+- Add support for both Movie and Series metadata lookups and catalog feeds.
+- Add modern setup dashboard with Nuvio Cloud connect/sync controls, active catalog overviews, and one-click installation URLs.
+
 ## 0.3.6
 
 - Fix recommended and release cards failing to open when Nuvio URL-encodes `tmdb:` metadata IDs.
@@ -11,8 +18,6 @@
 - Use a private path-authenticated add-on manifest compatible with Android TV.
 
 All notable changes are documented here. Versions follow Semantic Versioning while the project remains experimental.
-
-## Unreleased
 
 ## 0.3.4
 
