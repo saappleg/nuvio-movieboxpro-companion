@@ -93,3 +93,19 @@ test("syncNuvioCloudLibrary performs end-to-end sync and returns counts and seed
   assert.equal(summary.movieSeeds[0].id, 550);
   assert.ok(summary.syncedAt);
 });
+
+test("enrichLibrarySeeds processes unlimited library items without slicing", async () => {
+  const libraryList = Array.from({ length: 30 }, (_, i) => ({
+    id: 100 + i,
+    tmdbId: 100 + i,
+    name: `Show ${i + 1}`,
+    type: "series"
+  }));
+
+  const enriched = await enrichLibrarySeeds(libraryList, async () => {
+    throw new Error("Should not fetch TMDb if tmdbId and name already set");
+  });
+
+  assert.equal(enriched.length, 30);
+  assert.equal(enriched[29].id, 129);
+});

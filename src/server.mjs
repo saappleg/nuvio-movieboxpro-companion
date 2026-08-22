@@ -1,4 +1,5 @@
 import http from "node:http";
+import { Readable } from "node:stream";
 import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -21,8 +22,19 @@ import {
   parseMovieSeeds,
   parseCatalogConfig,
   resolveSeedShows,
-  resolveSeedMovies
+  resolveSeedMovies,
+  getCacheStats
 } from "./catalogs.mjs";
+import {
+  getProfiles,
+  getProfileById,
+  getProfileByCompanionKey,
+  getProfileByPluginKey,
+  createProfile,
+  updateProfile,
+  deleteProfile,
+  saveProfiles
+} from "./profiles.mjs";
 import {
   loginNuvioCloud,
   fetchNuvioProfiles,
@@ -47,6 +59,7 @@ const PERSISTED_KEYS = [
   "RECOMMENDATION_SEEDS",
   "MOVIE_RECOMMENDATION_SEEDS",
   "DISCOVERY_CATALOGS_CONFIG",
+  "USER_TIMEZONE",
   "NUVIO_CLOUD_EMAIL",
   "NUVIO_CLOUD_TOKEN",
   "NUVIO_CLOUD_PROFILE_ID",
@@ -72,10 +85,25 @@ const PORT = Number(process.env.PORT || 43110);
 const BROWSER_CHANNEL = process.env.BROWSER_CHANNEL || "chrome";
 const BASE = "https://www.movieboxpro.app";
 const PROFILE_DIR = path.resolve(process.env.MOVIEBOXPRO_PROFILE || "work/movieboxpro-profile");
-let browserContext;
-let browserPage;
-let browserLaunchPromise;
-let browserWorkQueue = Promise.resolve();
+
+const profileSessions = new Map();
+
+export function getProfileSession(profileId = "default", customProfileDir = null) {
+  const cleanId = String(profileId || "").toLowerCase().trim() || "default";
+  if (!profileSessions.has(cleanId)) {
+    const dir = customProfileDir || (cleanId === "default" ? PROFILE_DIR : path.resolve(`work/movieboxpro-profile-${cleanId}`));
+    profileSessions.set(cleanId, {
+      profileId: cleanId,
+      profileDir: dir,
+      browserContext: null,
+      browserPage: null,
+      browserLaunchPromise: null,
+      browserWorkQueue: Promise.resolve(),
+      lastHealth: { authenticated: false, lastChecked: null, error: null }
+    });
+  }
+  return profileSessions.get(cleanId);
+}
 
 function publicUrl() {
   return String(process.env.COMPANION_PUBLIC_URL || `http://${HOST}:${PORT}`).replace(/\/$/, "");
@@ -138,38 +166,67 @@ async function saveEnvValues(values) {
   for (const [key, value] of Object.entries(values)) process.env[key] = value;
 }
 
-async function ensureBrowser() {
-  if (browserContext) {
-    if (browserPage && !browserPage.isClosed()) return browserPage;
-    browserPage = browserContext.pages().find((page) => !page.isClosed()) || await browserContext.newPage();
-    return browserPage;
-  }
-  if (browserLaunchPromise) return browserLaunchPromise;
+// Stream Activity & Cache Analytics Ring Buffer
+const streamActivityLog = [];
+const MAX_ACTIVITY_LOG = 50;
+let totalStreamsResolved = 0;
+let totalResolutionDurationMs = 0;
 
-  browserLaunchPromise = (async () => {
-    await mkdir(PROFILE_DIR, { recursive: true });
+export function recordStreamActivity(entry) {
+  totalStreamsResolved++;
+  totalResolutionDurationMs += Number(entry.durationMs || 0);
+  streamActivityLog.unshift({
+    id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: new Date().toISOString(),
+    ...entry
+  });
+  if (streamActivityLog.length > MAX_ACTIVITY_LOG) {
+    streamActivityLog.length = MAX_ACTIVITY_LOG;
+  }
+}
+
+export function getAnalyticsSummary() {
+  const avgDurationMs = totalStreamsResolved > 0 ? Math.round(totalResolutionDurationMs / totalStreamsResolved) : 0;
+  return {
+    totalStreamsResolved,
+    avgDurationMs,
+    cacheStats: getCacheStats(),
+    recentActivity: streamActivityLog
+  };
+}
+
+async function ensureBrowser(session = getProfileSession("default")) {
+  if (session.browserContext) {
+    if (session.browserPage && !session.browserPage.isClosed()) return session.browserPage;
+    session.browserPage = session.browserContext.pages().find((page) => !page.isClosed()) || await session.browserContext.newPage();
+    return session.browserPage;
+  }
+  if (session.browserLaunchPromise) return session.browserLaunchPromise;
+
+  session.browserLaunchPromise = (async () => {
+    await mkdir(session.profileDir, { recursive: true });
     const launchOptions = {
       headless: false,
       viewport: null,
       args: ["--start-maximized"]
     };
     if (BROWSER_CHANNEL !== "chromium") launchOptions.channel = BROWSER_CHANNEL;
-    const context = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
-    browserContext = context;
+    const context = await chromium.launchPersistentContext(session.profileDir, launchOptions);
+    session.browserContext = context;
     context.on("close", () => {
-      if (browserContext === context) {
-        browserContext = undefined;
-        browserPage = undefined;
+      if (session.browserContext === context) {
+        session.browserContext = undefined;
+        session.browserPage = undefined;
       }
     });
-    browserPage = context.pages()[0] || await context.newPage();
-    return browserPage;
+    session.browserPage = context.pages()[0] || await context.newPage();
+    return session.browserPage;
   })();
 
   try {
-    return await browserLaunchPromise;
+    return await session.browserLaunchPromise;
   } finally {
-    browserLaunchPromise = undefined;
+    session.browserLaunchPromise = undefined;
   }
 }
 
@@ -181,20 +238,22 @@ function withTimeout(promise, milliseconds, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-function serializeBrowserWork(task) {
-  const work = browserWorkQueue.then(task, task);
-  browserWorkQueue = work.catch(() => {});
+function serializeBrowserWork(task, session = getProfileSession("default")) {
+  const work = session.browserWorkQueue.then(task, task);
+  session.browserWorkQueue = work.catch(() => {});
   return work;
 }
 
-async function openLoginWindow() {
-  const page = await ensureBrowser();
+async function openLoginWindow(profileId = "default") {
+  const session = getProfileSession(profileId);
+  const page = await ensureBrowser(session);
   await page.bringToFront();
   await page.goto(`${BASE}/index/login/code_login`, { waitUntil: "domcontentloaded" });
 }
 
-async function browserSessionStatus() {
-  const page = await ensureBrowser();
+async function browserSessionStatus(profileId = "default") {
+  const session = getProfileSession(profileId);
+  const page = await ensureBrowser(session);
   if (!page.url().startsWith(BASE)) {
     await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
   }
@@ -210,7 +269,73 @@ async function browserSessionStatus() {
       return { ok: false, authenticated: false };
     }
   }, BASE);
+  session.lastHealth = {
+    authenticated: Boolean(result?.authenticated),
+    lastChecked: new Date().toISOString(),
+    error: null
+  };
   return result;
+}
+
+let backgroundSyncTimer;
+let sessionCheckTimer;
+
+export async function checkSessionHealth(profileId = "default") {
+  const session = getProfileSession(profileId);
+  try {
+    const status = await serializeBrowserWork(() => browserSessionStatus(profileId), session);
+    session.lastHealth = {
+      authenticated: Boolean(status?.authenticated),
+      lastChecked: new Date().toISOString(),
+      error: null
+    };
+  } catch (err) {
+    session.lastHealth = {
+      authenticated: false,
+      lastChecked: new Date().toISOString(),
+      error: err.message
+    };
+  }
+  return session.lastHealth;
+}
+
+export async function performAutoCloudSync() {
+  if (!process.env.NUVIO_CLOUD_TOKEN) return null;
+  try {
+    const profileId = process.env.NUVIO_CLOUD_PROFILE_ID || 1;
+    const syncResult = await syncNuvioCloudLibrary({
+      accessToken: process.env.NUVIO_CLOUD_TOKEN,
+      profileId,
+      cloudUrl: process.env.NUVIO_CLOUD_URL
+    });
+    await saveEnvValues({
+      NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
+      RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
+      MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
+    });
+    console.log(`[AutoSync] Background synced ${syncResult.itemCount} items from Nuvio Cloud at ${syncResult.syncedAt}`);
+    return syncResult;
+  } catch (err) {
+    console.warn(`[AutoSync] Background sync error: ${err.message}`);
+    return null;
+  }
+}
+
+export function startBackgroundJobs() {
+  if (backgroundSyncTimer) clearInterval(backgroundSyncTimer);
+  if (sessionCheckTimer) clearInterval(sessionCheckTimer);
+
+  // Background Cloud Sync every 6 hours
+  backgroundSyncTimer = setInterval(performAutoCloudSync, 6 * 60 * 60 * 1000);
+  backgroundSyncTimer.unref();
+
+  // Periodic Session Health Check every 60 minutes
+  sessionCheckTimer = setInterval(() => {
+    if (process.env.COMPANION_KEY) {
+      checkSessionHealth("default").catch(() => {});
+    }
+  }, 60 * 60 * 1000);
+  sessionCheckTimer.unref();
 }
 
 function requireConfig() {
@@ -252,8 +377,9 @@ async function tmdbMetadata(tmdbId, mediaType) {
   };
 }
 
-async function mbpFetch(path, options = {}) {
-  const page = await ensureBrowser();
+async function mbpFetch(path, options = {}, profileId = "default") {
+  const session = getProfileSession(profileId);
+  const page = await ensureBrowser(session);
   if (!page.url().startsWith(BASE)) {
     await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
   }
@@ -291,9 +417,9 @@ async function mbpFetch(path, options = {}) {
   };
 }
 
-async function resolveStreams({ tmdbId, mediaType, season, episode }) {
+async function resolveStreams({ tmdbId, mediaType, season, episode }, profileId = "default") {
   const metadata = await tmdbMetadata(tmdbId, mediaType);
-  const search = await mbpFetch(`/index/search?word=${encodeURIComponent(metadata.title)}&type=${mediaType === "tv" ? "tv" : "movie"}`);
+  const search = await mbpFetch(`/index/search?word=${encodeURIComponent(metadata.title)}&type=${mediaType === "tv" ? "tv" : "movie"}`, {}, profileId);
   const candidates = parseSearchResults(await search.text());
   const selected = chooseCandidate(candidates, metadata);
   if (!selected || selected.score < 60) throw new Error("No confident MovieBoxPro title match");
@@ -301,12 +427,12 @@ async function resolveStreams({ tmdbId, mediaType, season, episode }) {
   const detailPath = mediaType === "tv"
     ? `/tvshow/${selected.candidate.id}?season=${Number(season)}&play=1`
     : `/movie/${selected.candidate.id}?play=1`;
-  const detail = await mbpFetch(detailPath);
+  const detail = await mbpFetch(detailPath, {}, profileId);
   const detailHtml = await detail.text();
   let sourceId;
 
   if (mediaType === "tv") {
-    const episodesResponse = await mbpFetch(`/index/index/player_tv_episodes?tid=${selected.candidate.id}&season=${Number(season)}`, { accept: "application/json" });
+    const episodesResponse = await mbpFetch(`/index/index/player_tv_episodes?tid=${selected.candidate.id}&season=${Number(season)}`, { accept: "application/json" }, profileId);
     const episodeData = await episodesResponse.json();
     sourceId = findEpisodeSourceId(episodeData, season, episode) || findInitialSourceId(detailHtml, "tv");
   } else {
@@ -316,7 +442,7 @@ async function resolveStreams({ tmdbId, mediaType, season, episode }) {
 
   const sourceKey = mediaType === "tv" ? "tfid" : "mfid";
   const playerPath = `/index/index/player?${sourceKey}=${encodeURIComponent(sourceId)}`;
-  const player = await mbpFetch(playerPath, { method: "POST", referer: new URL(detailPath, BASE).href });
+  const player = await mbpFetch(playerPath, { method: "POST", referer: new URL(detailPath, BASE).href }, profileId);
   const parsed = parsePlayerResponse(await player.text());
   const streams = streamsFromPlayer(parsed, new URL(detailPath, BASE).href);
   if (!streams.length) throw new Error("MovieBoxPro returned no playable streams");
@@ -371,6 +497,7 @@ const server = http.createServer(async (req, res) => {
       if (!setupAuthorized(req, url)) return sendJson(res, 401, { error: "Unauthorized" });
 
       if (url.pathname === "/api/setup/state" && req.method === "GET") {
+        const profiles = await getProfiles();
         return sendJson(res, 200, {
           service: "ready",
           host: HOST,
@@ -382,6 +509,17 @@ const server = http.createServer(async (req, res) => {
           recommendationSeeds: parseSeeds(),
           movieRecommendationSeeds: parseMovieSeeds(),
           catalogsConfig: parseCatalogConfig(),
+          userTimezone: process.env.USER_TIMEZONE || "",
+          detectedTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+          profiles: profiles.map((p) => ({
+            id: p.id,
+            name: p.name,
+            userTimezone: p.userTimezone,
+            seedCount: (p.recommendationSeeds?.length || 0) + (p.movieRecommendationSeeds?.length || 0),
+            nuvioCloudConnected: Boolean(p.nuvioCloud?.connected),
+            pluginUrl: privateRepositoryUrl(publicUrl(), p.pluginSetupKey),
+            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(p.pluginSetupKey)}/manifest.json`
+          })),
           nuvioCloud: {
             connected: Boolean(process.env.NUVIO_CLOUD_TOKEN || process.env.NUVIO_CLOUD_EMAIL),
             email: process.env.NUVIO_CLOUD_EMAIL || "",
@@ -394,8 +532,177 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      // Profiles API
+      if (url.pathname === "/api/setup/profiles" && req.method === "GET") {
+        const profiles = await getProfiles();
+        return sendJson(res, 200, {
+          profiles: profiles.map((p) => ({
+            ...p,
+            pluginUrl: privateRepositoryUrl(publicUrl(), p.pluginSetupKey),
+            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(p.pluginSetupKey)}/manifest.json`
+          }))
+        });
+      }
+
+      if (url.pathname === "/api/setup/profiles" && req.method === "POST") {
+        const body = await readJsonBody(req);
+        const created = await createProfile(body);
+        return sendJson(res, 201, {
+          ok: true,
+          profile: {
+            ...created,
+            pluginUrl: privateRepositoryUrl(publicUrl(), created.pluginSetupKey),
+            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(created.pluginSetupKey)}/manifest.json`
+          }
+        });
+      }
+
+      const profileMatch = url.pathname.match(/^\/api\/setup\/profiles\/([a-z0-9_-]+)(?:\/(.*))?$/i);
+      if (profileMatch) {
+        const targetId = profileMatch[1];
+        const subAction = profileMatch[2] || "";
+
+        if (!subAction && req.method === "GET") {
+          const profile = await getProfileById(targetId);
+          if (!profile) return sendJson(res, 404, { error: "Profile not found" });
+          return sendJson(res, 200, {
+            profile: {
+              ...profile,
+              pluginUrl: privateRepositoryUrl(publicUrl(), profile.pluginSetupKey),
+              catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(profile.pluginSetupKey)}/manifest.json`
+            }
+          });
+        }
+
+        if (!subAction && req.method === "PUT") {
+          const body = await readJsonBody(req);
+          const updated = await updateProfile(targetId, body);
+          return sendJson(res, 200, { ok: true, profile: updated });
+        }
+
+        if (!subAction && req.method === "DELETE") {
+          await deleteProfile(targetId);
+          return sendJson(res, 200, { ok: true });
+        }
+
+        if (subAction === "login" && req.method === "POST") {
+          const profile = await getProfileById(targetId);
+          if (!profile) return sendJson(res, 404, { error: "Profile not found" });
+          const session = getProfileSession(profile.id, profile.browserProfileDir);
+          await serializeBrowserWork(() => openLoginWindow(profile.id), session);
+          return sendJson(res, 200, { ok: true });
+        }
+
+        if (subAction === "status" && req.method === "GET") {
+          const profile = await getProfileById(targetId);
+          if (!profile) return sendJson(res, 404, { error: "Profile not found" });
+          const session = getProfileSession(profile.id, profile.browserProfileDir);
+          return sendJson(res, 200, await serializeBrowserWork(() => browserSessionStatus(profile.id), session));
+        }
+      }
+
+      // Stream Activity & Cache Analytics API
+      if (url.pathname === "/api/setup/analytics" && req.method === "GET") {
+        return sendJson(res, 200, getAnalyticsSummary());
+      }
+
+      // Backup & Restore APIs
+      if (url.pathname === "/api/setup/backup" && req.method === "GET") {
+        const profiles = await getProfiles();
+        const backupData = {
+          formatVersion: 1,
+          appVersion: APP_VERSION,
+          exportedAt: new Date().toISOString(),
+          profiles,
+          config: {
+            publicUrl: process.env.COMPANION_PUBLIC_URL || "",
+            userTimezone: process.env.USER_TIMEZONE || "",
+            catalogsConfig: parseCatalogConfig(),
+            recommendationSeeds: parseSeeds(),
+            movieRecommendationSeeds: parseMovieSeeds()
+          }
+        };
+        return sendJson(res, 200, backupData);
+      }
+
+      if (url.pathname === "/api/setup/restore" && req.method === "POST") {
+        const body = await readJsonBody(req);
+        if (!body || typeof body !== "object" || !Array.isArray(body.profiles)) {
+          return sendJson(res, 400, { error: "Invalid backup format: missing profiles array" });
+        }
+
+        await saveProfiles(body.profiles);
+
+        const envUpdates = {};
+        if (body.config?.publicUrl) envUpdates.COMPANION_PUBLIC_URL = body.config.publicUrl;
+        if (body.config?.userTimezone) envUpdates.USER_TIMEZONE = body.config.userTimezone;
+        if (body.config?.catalogsConfig) envUpdates.DISCOVERY_CATALOGS_CONFIG = JSON.stringify(body.config.catalogsConfig);
+        if (body.config?.recommendationSeeds) envUpdates.RECOMMENDATION_SEEDS = JSON.stringify(body.config.recommendationSeeds);
+        if (body.config?.movieRecommendationSeeds) envUpdates.MOVIE_RECOMMENDATION_SEEDS = JSON.stringify(body.config.movieRecommendationSeeds);
+
+        if (Object.keys(envUpdates).length) {
+          await saveEnvValues(envUpdates);
+        }
+
+        return sendJson(res, 200, {
+          ok: true,
+          restoredProfilesCount: body.profiles.length,
+          restoredAt: new Date().toISOString()
+        });
+      }
+
       if (url.pathname === "/api/setup/moviebox-status" && req.method === "GET") {
         return sendJson(res, 200, await serializeBrowserWork(browserSessionStatus));
+      }
+
+      if (url.pathname === "/api/setup/health" && req.method === "GET") {
+        const defaultSession = getProfileSession("default");
+        const tmdbOk = Boolean(process.env.TMDB_API_KEY || process.env.TMDB_BEARER_TOKEN);
+        const cloudOk = Boolean(process.env.NUVIO_CLOUD_TOKEN);
+        const mbpOk = Boolean(defaultSession.lastHealth?.authenticated);
+        const status = tmdbOk && mbpOk ? "healthy" : (tmdbOk ? "warning" : "error");
+
+        return sendJson(res, 200, {
+          status,
+          uptimeSeconds: Math.floor(process.uptime()),
+          moviebox: {
+            authenticated: mbpOk,
+            lastChecked: defaultSession.lastHealth?.lastChecked || null,
+            error: defaultSession.lastHealth?.error || null
+          },
+          tmdb: { configured: tmdbOk },
+          nuvioCloud: {
+            connected: cloudOk,
+            lastSync: process.env.NUVIO_CLOUD_LAST_SYNC || null
+          },
+          timezone: process.env.USER_TIMEZONE || "UTC"
+        });
+      }
+
+      // Version Check & Update API
+      if (url.pathname === "/api/setup/version-check" && req.method === "GET") {
+        let updateInfo = {
+          currentVersion: APP_VERSION,
+          latestVersion: APP_VERSION,
+          hasUpdate: false,
+          releaseUrl: "https://github.com/saappleg/nuvio-movieboxpro-companion/releases"
+        };
+        try {
+          const ghRes = await fetch("https://api.github.com/repos/saappleg/nuvio-movieboxpro-companion/releases/latest", {
+            headers: { "User-Agent": "nuvio-movieboxpro-companion" }
+          });
+          if (ghRes.ok) {
+            const data = await ghRes.json();
+            const latestTag = data.tag_name ? data.tag_name.replace(/^v/, "") : APP_VERSION;
+            updateInfo.latestVersion = latestTag;
+            updateInfo.releaseUrl = data.html_url || updateInfo.releaseUrl;
+            updateInfo.releaseNotes = data.body || "";
+            if (latestTag && latestTag !== APP_VERSION && !APP_VERSION.includes(latestTag)) {
+              updateInfo.hasUpdate = true;
+            }
+          }
+        } catch {}
+        return sendJson(res, 200, updateInfo);
       }
 
       if (url.pathname === "/api/setup/login" && req.method === "POST") {
@@ -534,9 +841,27 @@ const server = http.createServer(async (req, res) => {
           updates.TMDB_API_KEY = value;
           updates.TMDB_BEARER_TOKEN = "";
         }
+        if (typeof body.userTimezone === "string") {
+          const tz = body.userTimezone.trim();
+          if (tz) {
+            try {
+              Intl.DateTimeFormat(undefined, { timeZone: tz });
+              updates.USER_TIMEZONE = tz;
+            } catch {
+              throw new Error("Invalid timezone format (e.g. America/New_York or Europe/London)");
+            }
+          } else {
+            updates.USER_TIMEZONE = "";
+          }
+        }
         if (!Object.keys(updates).length) return sendJson(res, 400, { error: "No configuration changes supplied" });
         await saveEnvValues(updates);
-        return sendJson(res, 200, { ok: true, publicUrl: publicUrl(), tmdbConfigured: Boolean(process.env.TMDB_API_KEY) });
+        return sendJson(res, 200, {
+          ok: true,
+          publicUrl: publicUrl(),
+          tmdbConfigured: Boolean(process.env.TMDB_API_KEY),
+          userTimezone: process.env.USER_TIMEZONE || ""
+        });
       }
 
       if (url.pathname === "/api/setup/logout" && req.method === "POST") {
@@ -550,48 +875,154 @@ const server = http.createServer(async (req, res) => {
     // 3. Catalog and Discovery Endpoints
     const catalogRequest = matchCatalogRequestPath(url.pathname);
     if (catalogRequest && req.method === "GET") {
-      if (!process.env.PLUGIN_SETUP_KEY || catalogRequest.key !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      if (catalogRequest.resource === "manifest.json") return sendJson(res, 200, catalogManifest(APP_VERSION, catalogRequest.key, parseCatalogConfig()));
+      const activeProfile = await getProfileByPluginKey(catalogRequest.key) ||
+        (process.env.PLUGIN_SETUP_KEY && catalogRequest.key === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
+      if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
+
+      if (catalogRequest.resource === "manifest.json") {
+        const config = activeProfile.catalogsConfig || parseCatalogConfig();
+        return sendJson(res, 200, catalogManifest(APP_VERSION, catalogRequest.key, config));
+      }
       if (catalogRequest.catalogId) {
         const isMovie = catalogRequest.mediaType === "movie" || catalogRequest.catalogId.includes("movie");
-        const seeds = isMovie ? parseMovieSeeds() : parseSeeds();
+        const seeds = isMovie
+          ? (activeProfile.movieRecommendationSeeds?.length ? activeProfile.movieRecommendationSeeds : parseMovieSeeds())
+          : (activeProfile.recommendationSeeds?.length ? activeProfile.recommendationSeeds : parseSeeds());
         const extraParam = catalogRequest.extra || url.search.replace(/^\?/, "");
         return sendJson(res, 200, { metas: await loadCatalog(catalogRequest.catalogId, seeds, fetch, new Date(), catalogRequest.mediaType, extraParam) });
       }
       if (catalogRequest.metaId) {
         return sendJson(res, 200, { meta: await loadMeta(catalogRequest.metaId, fetch, catalogRequest.mediaType) });
       }
+    }
+
+    // PWA Assets
+    if (url.pathname === "/app.webmanifest" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/manifest+json; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+      return res.end(JSON.stringify({
+        name: "MovieBoxPro & Nuvio Hub",
+        short_name: "Nuvio MBP",
+        start_url: "/setup",
+        scope: "/",
+        display: "standalone",
+        background_color: "#080c14",
+        theme_color: "#080c14",
+        orientation: "any",
+        icons: [
+          {
+            src: "/icon.svg",
+            sizes: "192x192 512x512",
+            type: "image/svg+xml",
+            purpose: "any maskable"
+          }
+        ]
+      }, null, 2));
+    }
+
+    if (url.pathname === "/sw.js" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache" });
+      return res.end("self.addEventListener('install', (e) => e.waitUntil(self.skipWaiting()));\nself.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));\nself.addEventListener('fetch', () => {});");
+    }
+
+    if ((url.pathname === "/icon.svg" || url.pathname === "/favicon.svg" || url.pathname === "/favicon.ico") && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" });
-      return res.end("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'><rect width='128' height='128' rx='24' fill='%2311182a'/><path d='M31 24v14m66-14v14M23 48h82M29 31h70a8 8 0 0 1 8 8v61a8 8 0 0 1-8 8H29a8 8 0 0 1-8-8V39a8 8 0 0 1 8-8z' fill='none' stroke='%237c9cff' stroke-width='9'/></svg>");
+      return res.end("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'><rect width='128' height='128' rx='28' fill='%230b1329'/><circle cx='64' cy='64' r='48' fill='none' stroke='%2338bdf8' stroke-width='6' stroke-dasharray='10 6'/><path d='M36 28v14m56-14v14M26 50h76M32 35h64a8 8 0 0 1 8 8v54a8 8 0 0 1-8 8H32a8 8 0 0 1-8-8V43a8 8 0 0 1 8-8z' fill='none' stroke='%23818cf8' stroke-width='8'/><polygon points='56,58 78,71 56,84' fill='%2338bdf8'/></svg>");
+    }
+
+    // Video Stream Proxy Endpoint
+    if (url.pathname === "/stream/proxy" && req.method === "GET") {
+      const targetUrl = url.searchParams.get("url");
+      const proxyKey = url.searchParams.get("key") || queryKey;
+      const proxyProfile = await getProfileByCompanionKey(proxyKey) ||
+        (process.env.COMPANION_KEY && proxyKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
+      if (!proxyProfile) return sendJson(res, 401, { error: "Unauthorized stream proxy request" });
+
+      if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+        return sendJson(res, 400, { error: "Missing or invalid stream target URL" });
+      }
+
+      try {
+        const upstreamHeaders = {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+          "Referer": "https://www.movieboxpro.app/",
+          "Origin": "https://www.movieboxpro.app"
+        };
+        if (req.headers.range) {
+          upstreamHeaders["Range"] = req.headers.range;
+        }
+
+        const upstreamRes = await fetch(targetUrl, {
+          headers: upstreamHeaders,
+          redirect: "follow"
+        });
+
+        const responseHeaders = {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "*",
+          "Accept-Ranges": "bytes"
+        };
+
+        if (upstreamRes.headers.get("content-type")) {
+          responseHeaders["Content-Type"] = upstreamRes.headers.get("content-type");
+        }
+        if (upstreamRes.headers.get("content-length")) {
+          responseHeaders["Content-Length"] = upstreamRes.headers.get("content-length");
+        }
+        if (upstreamRes.headers.get("content-range")) {
+          responseHeaders["Content-Range"] = upstreamRes.headers.get("content-range");
+        }
+
+        res.writeHead(upstreamRes.status, responseHeaders);
+
+        if (upstreamRes.body) {
+          const nodeStream = Readable.fromWeb(upstreamRes.body);
+          nodeStream.pipe(res);
+        } else {
+          res.end();
+        }
+        return;
+      } catch (err) {
+        return sendJson(res, 502, { error: `Stream proxy error: ${err.message}` });
+      }
     }
 
     // 4. Provider Repository Endpoints
     const privateRepository = matchPrivateRepositoryPath(url.pathname);
     if ((url.pathname === "/manifest.json" || privateRepository?.resource === "manifest.json") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
-      if (!process.env.PLUGIN_SETUP_KEY || repositoryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      return sendJson(res, 200, repositoryManifest(APP_VERSION, process.env.PLUGIN_SETUP_KEY, Boolean(privateRepository)));
+      const repoProfile = await getProfileByPluginKey(repositoryKey) ||
+        (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
+      if (!repoProfile) return sendJson(res, 401, { error: "Unauthorized" });
+      return sendJson(res, 200, repositoryManifest(APP_VERSION, repoProfile.pluginSetupKey, Boolean(privateRepository)));
     }
     if ((url.pathname === "/providers/movieboxpro-local.js" || privateRepository?.resource === "providers/movieboxpro-local.js") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
-      if (!process.env.PLUGIN_SETUP_KEY || repositoryKey !== process.env.PLUGIN_SETUP_KEY) return sendJson(res, 401, { error: "Unauthorized" });
+      const pluginProfile = await getProfileByPluginKey(repositoryKey) ||
+        (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
+      if (!pluginProfile) return sendJson(res, 401, { error: "Unauthorized" });
       requireConfig();
       const template = await readFile(new URL("../provider/movieboxpro-local.js", import.meta.url), "utf8");
       const source = template
         .replace("__COMPANION_URL__", JSON.stringify(publicUrl()))
-        .replace("__COMPANION_KEY__", JSON.stringify(process.env.COMPANION_KEY));
+        .replace("__COMPANION_KEY__", JSON.stringify(pluginProfile.companionKey));
       return sendJavaScript(res, source);
     }
 
     // 5. Browser Session & Login
     if (url.pathname === "/login" && req.method === "GET") {
-      if (!process.env.COMPANION_KEY || queryKey !== process.env.COMPANION_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      await serializeBrowserWork(openLoginWindow);
-      return sendJson(res, 200, { ok: true, message: "Complete login in the dedicated Chrome window, then check /status." });
+      const loginProfile = await getProfileByCompanionKey(queryKey) ||
+        (process.env.COMPANION_KEY && queryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
+      if (!loginProfile) return sendJson(res, 401, { error: "Unauthorized" });
+      const session = getProfileSession(loginProfile.id, loginProfile.browserProfileDir);
+      await serializeBrowserWork(() => openLoginWindow(loginProfile.id), session);
+      return sendJson(res, 200, { ok: true, message: `Complete login for profile "${loginProfile.name}" in the dedicated Chrome window, then check /status.` });
     }
     if (url.pathname === "/status" && req.method === "GET") {
-      if (!process.env.COMPANION_KEY || queryKey !== process.env.COMPANION_KEY) return sendJson(res, 401, { error: "Unauthorized" });
-      return sendJson(res, 200, await serializeBrowserWork(browserSessionStatus));
+      const statusProfile = await getProfileByCompanionKey(queryKey) ||
+        (process.env.COMPANION_KEY && queryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
+      if (!statusProfile) return sendJson(res, 401, { error: "Unauthorized" });
+      const session = getProfileSession(statusProfile.id, statusProfile.browserProfileDir);
+      return sendJson(res, 200, await serializeBrowserWork(() => browserSessionStatus(statusProfile.id), session));
     }
 
     // 6. IntroDB Skip Intro Segments API
@@ -611,7 +1042,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname !== "/streams" || req.method !== "GET") return sendJson(res, 404, { error: "Not found" });
 
     requireConfig();
-    if (suppliedKey !== process.env.COMPANION_KEY) return sendJson(res, 401, { error: "Unauthorized" });
+    const streamProfile = await getProfileByCompanionKey(suppliedKey) ||
+      (process.env.COMPANION_KEY && suppliedKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
+    if (!streamProfile) return sendJson(res, 401, { error: "Unauthorized" });
 
     const rawType = String(url.searchParams.get("mediaType") || "movie").toLowerCase();
     const mediaType = /tv|series|show|episode/.test(rawType) ? "tv" : "movie";
@@ -627,14 +1060,47 @@ const server = http.createServer(async (req, res) => {
     if (!params.tmdbId || (mediaType === "tv" && (!params.season || !params.episode))) {
       return sendJson(res, 400, { error: "Missing media parameters" });
     }
-    console.log(`[companion] stream request tmdb=${params.tmdbId} type=${params.mediaType}` +
+    console.log(`[companion][${activeProfile.name}] stream request tmdb=${params.tmdbId} type=${params.mediaType}` +
       (params.mediaType === "tv" ? ` season=${Number(params.season)} episode=${Number(params.episode)}` : ""));
 
-    const resolvedStreams = await withTimeout(
-      serializeBrowserWork(() => resolveStreams(params)),
-      Number(process.env.STREAM_TIMEOUT_MS || 45000),
-      "Stream lookup timed out"
-    );
+    const startTime = Date.now();
+    let resolvedStreams;
+    const session = getProfileSession(activeProfile.id, activeProfile.browserProfileDir);
+
+    try {
+      resolvedStreams = await withTimeout(
+        serializeBrowserWork(() => resolveStreams(params, activeProfile.id), session),
+        Number(process.env.STREAM_TIMEOUT_MS || 45000),
+        "Stream lookup timed out"
+      );
+
+      recordStreamActivity({
+        profileId: activeProfile.id,
+        profileName: activeProfile.name,
+        tmdbId: params.tmdbId,
+        mediaType: params.mediaType,
+        season: params.season,
+        episode: params.episode,
+        streamCount: Array.isArray(resolvedStreams) ? resolvedStreams.length : 0,
+        durationMs: Date.now() - startTime,
+        success: true,
+        error: null
+      });
+    } catch (streamError) {
+      recordStreamActivity({
+        profileId: activeProfile.id,
+        profileName: activeProfile.name,
+        tmdbId: params.tmdbId,
+        mediaType: params.mediaType,
+        season: params.season,
+        episode: params.episode,
+        streamCount: 0,
+        durationMs: Date.now() - startTime,
+        success: false,
+        error: streamError.message
+      });
+      throw streamError;
+    }
 
     // Enrich TV series streams with IntroDB skip segments (intro, outro, recap)
     if (params.mediaType === "tv" && Array.isArray(resolvedStreams) && resolvedStreams.length) {
@@ -662,11 +1128,14 @@ server.listen(PORT, HOST, () => {
   console.log(`MovieBoxPro companion listening on http://${HOST}:${PORT}`);
   console.log("Use /login?key=<COMPANION_KEY> to open the dedicated MovieBoxPro login window.");
   console.log("Use /setup?key=<COMPANION_KEY> for the guided setup dashboard.");
+  startBackgroundJobs();
 });
 
 async function shutdown() {
-  if (browserLaunchPromise) await browserLaunchPromise.catch(() => {});
-  if (browserContext) await browserContext.close().catch(() => {});
+  for (const session of profileSessions.values()) {
+    if (session.browserLaunchPromise) await session.browserLaunchPromise.catch(() => {});
+    if (session.browserContext) await session.browserContext.close().catch(() => {});
+  }
   server.close(() => process.exit(0));
 }
 process.on("SIGINT", shutdown);
