@@ -398,8 +398,8 @@ export function catalogManifest(version, key, config = parseCatalogConfig()) {
       type: c.type,
       id: c.id,
       name: c.name,
-      extra: c.extra,
-      extraSupported: c.extraSupported
+      extra: c.extra || [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
+      extraSupported: c.extraSupported || ["search", "skip"]
     }));
 
   return {
@@ -408,8 +408,8 @@ export function catalogManifest(version, key, config = parseCatalogConfig()) {
     name: "Nuvio Companion Discovery & Calendar",
     description: "Calendar releases, new movies & series, and personalized recommendations powered by TMDb and Nuvio Cloud",
     resources: ["catalog", "meta"],
-    types: ["movie", "series"],
-    idPrefixes: ["tmdb:", "tt"],
+    types: ["movie", "series", "tv"],
+    idPrefixes: ["tmdb:", "tt", "tmdb"],
     catalogs: activeCatalogs,
     behaviorHints: { configurable: false, configurationRequired: false }
   };
@@ -478,7 +478,7 @@ export function parseCatalogExtra(extra) {
 }
 
 export function matchCatalogRequestPath(pathname) {
-  const cleanPath = String(pathname || "").split("?")[0];
+  const cleanPath = String(pathname || "").split("?")[0].replace(/\/+$/, "");
 
   // 1. Logo
   if (/\/catalog\/[^/]+\/logo\.svg$/i.test(cleanPath)) {
@@ -486,9 +486,9 @@ export function matchCatalogRequestPath(pathname) {
     return { key: decodeURIComponent(match[1]), resource: "logo.svg" };
   }
 
-  // 2. Manifest
-  if (/\/catalog\/[^/]+\/manifest\.json$/i.test(cleanPath)) {
-    const match = cleanPath.match(/\/catalog\/([^/]+)\/manifest\.json/i);
+  // 2. Manifest (/catalog/:key/manifest.json or /catalog/:key)
+  if (/\/catalog\/[^/]+\/manifest\.json$/i.test(cleanPath) || /^\/catalog\/[^/]+$/i.test(cleanPath)) {
+    const match = cleanPath.match(/\/catalog\/([^/]+)(?:\/manifest\.json)?$/i);
     return { key: decodeURIComponent(match[1]), resource: "manifest.json" };
   }
 

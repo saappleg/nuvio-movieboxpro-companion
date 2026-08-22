@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0-beta.5
+
+- **Android TV Add-on & Manifest Compatibility**: Added support for trailing slash tolerance on catalog endpoints, enhanced `types` (`["movie", "series", "tv"]`) and `idPrefixes` (`["tmdb:", "tt", "tmdb"]`) in `catalogManifest`, and expanded scraper `supportedTypes` (`["movie", "tv", "series"]`).
+
 ## 1.0.0-beta.4
 
 - **Fix Dashboard Buttons & Client Script Execution**: Resolved client-side regular expression parsing syntax error on the Setup Dashboard preventing UI buttons from responding.
