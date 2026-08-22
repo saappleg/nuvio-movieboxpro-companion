@@ -338,10 +338,9 @@ export function startBackgroundJobs() {
   sessionCheckTimer.unref();
 }
 
-function requireConfig() {
-  for (const key of ["COMPANION_KEY"]) {
-    if (!process.env[key] || process.env[key].startsWith("replace-")) throw new Error(`Missing ${key} in .env`);
-  }
+function requireConfig(profile = null) {
+  const hasKey = (profile && profile.companionKey) || (process.env.COMPANION_KEY && !process.env.COMPANION_KEY.startsWith("replace-"));
+  if (!hasKey) throw new Error("Missing COMPANION_KEY in configuration");
   if (!process.env.TMDB_API_KEY && !process.env.TMDB_BEARER_TOKEN) {
     throw new Error("Missing TMDB_API_KEY or TMDB_BEARER_TOKEN in .env");
   }
@@ -876,7 +875,9 @@ const server = http.createServer(async (req, res) => {
     const catalogRequest = matchCatalogRequestPath(url.pathname);
     if (catalogRequest && req.method === "GET") {
       const activeProfile = await getProfileByPluginKey(catalogRequest.key) ||
-        (process.env.PLUGIN_SETUP_KEY && catalogRequest.key === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
+        await getProfileByCompanionKey(catalogRequest.key) ||
+        (process.env.PLUGIN_SETUP_KEY && catalogRequest.key === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null) ||
+        (process.env.COMPANION_KEY && catalogRequest.key === process.env.COMPANION_KEY ? await getProfileById("default") : null);
       if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
 
       if (catalogRequest.resource === "manifest.json") {
@@ -920,13 +921,33 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/sw.js" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache" });
-      return res.end("self.addEventListener('install', (e) => e.waitUntil(self.skipWaiting()));\nself.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));\nself.addEventListener('fetch', () => {});");
+      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+      return res.end(`
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', (e) => {
+  e.waitUntil(clients.claim());
+});
+self.addEventListener('fetch', (e) => {
+  // Let network handle dynamic API requests
+});
+`);
     }
 
-    if ((url.pathname === "/icon.svg" || url.pathname === "/favicon.svg" || url.pathname === "/favicon.ico") && req.method === "GET") {
+    if (url.pathname === "/icon.svg" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" });
-      return res.end("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'><rect width='128' height='128' rx='28' fill='%230b1329'/><circle cx='64' cy='64' r='48' fill='none' stroke='%2338bdf8' stroke-width='6' stroke-dasharray='10 6'/><path d='M36 28v14m56-14v14M26 50h76M32 35h64a8 8 0 0 1 8 8v54a8 8 0 0 1-8 8H32a8 8 0 0 1-8-8V43a8 8 0 0 1 8-8z' fill='none' stroke='%23818cf8' stroke-width='8'/><polygon points='56,58 78,71 56,84' fill='%2338bdf8'/></svg>");
+      return res.end(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="22" fill="#080c14"/>
+  <circle cx="50" cy="50" r="32" fill="none" stroke="url(#g)" stroke-width="6"/>
+  <polygon points="44,38 64,50 44,62" fill="url(#g)"/>
+</svg>`);
     }
 
     // Video Stream Proxy Endpoint
@@ -934,7 +955,9 @@ const server = http.createServer(async (req, res) => {
       const targetUrl = url.searchParams.get("url");
       const proxyKey = url.searchParams.get("key") || queryKey;
       const proxyProfile = await getProfileByCompanionKey(proxyKey) ||
-        (process.env.COMPANION_KEY && proxyKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
+        await getProfileByPluginKey(proxyKey) ||
+        (process.env.COMPANION_KEY && proxyKey === process.env.COMPANION_KEY ? await getProfileById("default") : null) ||
+        (process.env.PLUGIN_SETUP_KEY && proxyKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
       if (!proxyProfile) return sendJson(res, 401, { error: "Unauthorized stream proxy request" });
 
       if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
@@ -991,16 +1014,20 @@ const server = http.createServer(async (req, res) => {
     if ((url.pathname === "/manifest.json" || privateRepository?.resource === "manifest.json") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
       const repoProfile = await getProfileByPluginKey(repositoryKey) ||
-        (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
+        await getProfileByCompanionKey(repositoryKey) ||
+        (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null) ||
+        (process.env.COMPANION_KEY && repositoryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
       if (!repoProfile) return sendJson(res, 401, { error: "Unauthorized" });
       return sendJson(res, 200, repositoryManifest(APP_VERSION, repoProfile.pluginSetupKey, Boolean(privateRepository)));
     }
     if ((url.pathname === "/providers/movieboxpro-local.js" || privateRepository?.resource === "providers/movieboxpro-local.js") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
       const pluginProfile = await getProfileByPluginKey(repositoryKey) ||
-        (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
+        await getProfileByCompanionKey(repositoryKey) ||
+        (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null) ||
+        (process.env.COMPANION_KEY && repositoryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
       if (!pluginProfile) return sendJson(res, 401, { error: "Unauthorized" });
-      requireConfig();
+      requireConfig(pluginProfile);
       const template = await readFile(new URL("../provider/movieboxpro-local.js", import.meta.url), "utf8");
       const source = template
         .replace("__COMPANION_URL__", JSON.stringify(publicUrl()))
@@ -1011,6 +1038,7 @@ const server = http.createServer(async (req, res) => {
     // 5. Browser Session & Login
     if (url.pathname === "/login" && req.method === "GET") {
       const loginProfile = await getProfileByCompanionKey(queryKey) ||
+        await getProfileByPluginKey(queryKey) ||
         (process.env.COMPANION_KEY && queryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
       if (!loginProfile) return sendJson(res, 401, { error: "Unauthorized" });
       const session = getProfileSession(loginProfile.id, loginProfile.browserProfileDir);
@@ -1019,6 +1047,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/status" && req.method === "GET") {
       const statusProfile = await getProfileByCompanionKey(queryKey) ||
+        await getProfileByPluginKey(queryKey) ||
         (process.env.COMPANION_KEY && queryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
       if (!statusProfile) return sendJson(res, 401, { error: "Unauthorized" });
       const session = getProfileSession(statusProfile.id, statusProfile.browserProfileDir);
@@ -1041,10 +1070,12 @@ const server = http.createServer(async (req, res) => {
     // 7. Streams API (Requested by Nuvio Scraper)
     if (url.pathname !== "/streams" || req.method !== "GET") return sendJson(res, 404, { error: "Not found" });
 
-    requireConfig();
     const activeProfile = await getProfileByCompanionKey(suppliedKey) ||
-      (process.env.COMPANION_KEY && suppliedKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
+      await getProfileByPluginKey(suppliedKey) ||
+      (process.env.COMPANION_KEY && suppliedKey === process.env.COMPANION_KEY ? await getProfileById("default") : null) ||
+      (process.env.PLUGIN_SETUP_KEY && suppliedKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
     if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
+    requireConfig(activeProfile);
 
     const rawType = String(url.searchParams.get("mediaType") || "movie").toLowerCase();
     const mediaType = /tv|series|show|episode/.test(rawType) ? "tv" : "movie";
