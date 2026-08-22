@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.4
+
+- **Fix Dashboard Buttons & Client Script Execution**: Resolved client-side regular expression parsing syntax error on the Setup Dashboard preventing UI buttons from responding.
+- **Fix Stream Handler Variable Scope**: Resolved reference error during stream resolution and ensured active profile logging and timeouts execute properly.
+- **Enhanced Key Resolution & Compatibility**: Support interchangeable use of `PLUGIN_SETUP_KEY` and `COMPANION_KEY` across all repository, catalog, manifest, and streaming endpoints.
+
 ## 1.0.0-beta.3
 
 - **"If You Liked This..." Similar Titles & Recommendations**: High-accuracy recommendations and similar titles appended to Nuvio detail screens and description headers (`meta.similar` & `💡 More Like This: ...`) in a single high-speed TMDb query.
