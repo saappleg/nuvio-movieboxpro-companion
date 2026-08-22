@@ -5,6 +5,14 @@ export function setupPage() {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>MovieBoxPro Companion & Nuvio Hub</title>
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Nuvio MBP">
+  <meta name="theme-color" content="#070b14">
+  <link rel="manifest" href="/app.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
   <style>
     :root{
       color-scheme:dark;
@@ -182,7 +190,90 @@ export function setupPage() {
     </div>
   </section>
 
+  <!-- In-Dashboard Update Alert Banner -->
+  <aside id="updateBanner" class="card wide" style="display:none;background:linear-gradient(135deg,rgba(56,189,248,0.18),rgba(168,85,247,0.18));border-color:var(--accent);margin-bottom:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:24px">🚀</span>
+        <div>
+          <strong style="color:#fff;font-size:16px">New Update Available: <span id="updateVersionTag"></span></strong>
+          <div style="color:var(--muted);font-size:13px" id="updateNotesPreview">A new release of Nuvio MovieBoxPro Companion is available.</div>
+        </div>
+      </div>
+      <div class="row" style="gap:8px">
+        <a id="updateReleaseLink" class="button" target="_blank" rel="noreferrer" style="padding:6px 14px;font-size:13px">View on GitHub</a>
+        <button class="secondary" id="dismissUpdateBtn" style="padding:6px 12px;font-size:13px">Dismiss</button>
+      </div>
+    </div>
+  </aside>
+
   <section class="grid">
+    <article class="card wide" style="background:linear-gradient(160deg,#131d36,#0c1322);border-color:rgba(56,189,248,0.35)">
+      <div class="card-header">
+        <h2>👥 Profile & Multi-Device Manager</h2>
+        <span class="badge" id="profileBadgeCount">1 Profile Active</span>
+      </div>
+      <p>Configure dedicated MovieBoxPro logins, separate recommendation seeds, and individual Nuvio plugin/catalog URLs per user or device (e.g. Living Room, Kids, Bedroom).</p>
+      
+      <div class="row" style="gap:12px;align-items:flex-end">
+        <div style="flex:1;min-width:200px">
+          <label for="profileSelect">Active Profile</label>
+          <select id="profileSelect"></select>
+        </div>
+        <div>
+          <button id="addProfileBtn" class="secondary">+ Add New Profile</button>
+          <button id="deleteProfileBtn" class="secondary danger" style="display:none">Delete Profile</button>
+        </div>
+      </div>
+
+      <div id="profileDetails" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line)">
+        <div class="row" style="gap:16px;justify-content:space-between">
+          <div>
+            <span class="status">Profile Name: <strong id="activeProfileNameDisplay">Default Profile</strong></span>
+            <span class="status" style="margin-left:14px">Session: <strong id="activeProfileSessionDisplay">Checking…</strong></span>
+          </div>
+          <div class="row" style="gap:8px">
+            <button class="secondary" id="profileLoginBtn">Log in to MovieBox for this Profile</button>
+            <button class="secondary" id="profileStatusBtn">Check Session</button>
+          </div>
+        </div>
+        <div class="message" id="profileActionMessage"></div>
+      </div>
+    </article>
+
+    <!-- Stream Activity & Cache Analytics -->
+    <article class="card wide" style="background:linear-gradient(160deg,#101a2f,#0a0f1d)">
+      <div class="card-header">
+        <h2>📊 Stream Activity & Cache Analytics</h2>
+        <button class="secondary" id="refreshAnalyticsBtn" style="padding:4px 10px;font-size:12px">Refresh Stats</button>
+      </div>
+      <p>Real-time performance metrics, TMDb/IntroDB cache ratios, and live playback stream lookups.</p>
+      
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:16px">
+        <div style="background:var(--panel-sub);padding:14px;border-radius:12px;border:1px solid var(--line)">
+          <div style="font-size:12px;color:var(--muted)">Avg Resolution Time</div>
+          <div style="font-size:22px;font-weight:700;color:var(--accent);margin-top:4px" id="statAvgTime">0 ms</div>
+        </div>
+        <div style="background:var(--panel-sub);padding:14px;border-radius:12px;border:1px solid var(--line)">
+          <div style="font-size:12px;color:var(--muted)">TMDb Cache Hit Ratio</div>
+          <div style="font-size:22px;font-weight:700;color:var(--good);margin-top:4px" id="statCacheRatio">100%</div>
+        </div>
+        <div style="background:var(--panel-sub);padding:14px;border-radius:12px;border:1px solid var(--line)">
+          <div style="font-size:12px;color:var(--muted)">Total Streams Resolved</div>
+          <div style="font-size:22px;font-weight:700;color:#fff;margin-top:4px" id="statTotalStreams">0</div>
+        </div>
+        <div style="background:var(--panel-sub);padding:14px;border-radius:12px;border:1px solid var(--line)">
+          <div style="font-size:12px;color:var(--muted)">In-Memory Cache Entries</div>
+          <div style="font-size:22px;font-weight:700;color:var(--purple);margin-top:4px" id="statCacheEntries">0</div>
+        </div>
+      </div>
+
+      <label>Recent Stream Lookups</label>
+      <div id="activityList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;background:var(--panel-sub);padding:10px;border-radius:10px;border:1px solid var(--line)">
+        <div style="color:var(--muted);font-size:13px;text-align:center;padding:12px">No stream requests recorded yet in this session.</div>
+      </div>
+    </article>
+
     <!-- 1. Companion Network Address -->
     <article class="card">
       <div class="card-header">
@@ -213,10 +304,28 @@ export function setupPage() {
       <div class="message" id="tmdbMessage"></div>
     </article>
 
-    <!-- 3. MovieBoxPro Login -->
+    <!-- 3. Timezone & Calendar Preferences -->
     <article class="card">
       <div class="card-header">
-        <h2>3. MovieBoxPro Session</h2>
+        <h2>3. Timezone & Calendar</h2>
+        <div class="status"><span id="timezoneStatus">Auto-detected</span></div>
+      </div>
+      <p>Aligns "Airing Today" and episode premiere dates with your local calendar day.</p>
+      <label for="userTimezone">Local Timezone (IANA)</label>
+      <div class="row" style="gap:8px">
+        <input id="userTimezone" style="flex:1" placeholder="e.g. America/New_York, Europe/London">
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button id="saveTimezone">Save Timezone</button>
+        <button class="secondary" id="useDetectedTz">Use Device Timezone</button>
+      </div>
+      <div class="message" id="timezoneMessage"></div>
+    </article>
+
+    <!-- 4. MovieBoxPro Login -->
+    <article class="card">
+      <div class="card-header">
+        <h2>4. MovieBoxPro Session</h2>
         <div class="status"><span id="movieboxText">Not checked</span></div>
       </div>
       <p>Official persistent browser profile. Stream URLs are signed on-demand.</p>
@@ -228,10 +337,10 @@ export function setupPage() {
       <div class="message" id="loginMessage"></div>
     </article>
 
-    <!-- 4. Nuvio Cloud Account Sync -->
+    <!-- 5. Nuvio Cloud Account Sync -->
     <article class="card">
       <div class="card-header">
-        <h2>4. Nuvio Cloud Sync</h2>
+        <h2>5. Nuvio Cloud Sync</h2>
         <div class="status"><span id="cloudStatusText">Not connected</span></div>
       </div>
       <p>Connect your Nuvio Cloud account to automatically synchronize library series & movies for recommendations.</p>
@@ -255,10 +364,10 @@ export function setupPage() {
       <div class="message" id="cloudMessage"></div>
     </article>
 
-    <!-- 5. MovieBox Stream Provider Plugin -->
+    <!-- 6. MovieBox Stream Provider Plugin -->
     <article class="card">
       <div class="card-header">
-        <h2>5. MovieBox Stream Provider</h2>
+        <h2>6. MovieBox Stream Provider</h2>
         <span class="badge">Nuvio Scraper</span>
       </div>
       <p>Add MovieBoxPro as a stream source for movies & TV series inside Nuvio.</p>
@@ -270,10 +379,10 @@ export function setupPage() {
       <div class="message" id="pluginMessage"></div>
     </article>
 
-    <!-- 6. Calendar & Recommended Add-on -->
+    <!-- 7. Calendar & Recommended Add-on -->
     <article class="card">
       <div class="card-header">
-        <h2>6. Discovery & Calendar Add-on</h2>
+        <h2>7. Discovery & Calendar Add-on</h2>
         <span class="badge">Stremio/Nuvio Catalog</span>
       </div>
       <p>Feeds Airing Today, This Week, New & Returning, and personalized recommendations.</p>
@@ -285,10 +394,10 @@ export function setupPage() {
       <div class="message" id="catalogMessage"></div>
     </article>
 
-    <!-- 7. Included Discovery Catalogs Overview & Customizer -->
+    <!-- 8. Included Discovery Catalogs Overview & Customizer -->
     <article class="card wide">
       <div class="card-header">
-        <h2>7. Active Discovery & Calendar Feeds</h2>
+        <h2>8. Active Discovery & Calendar Feeds</h2>
         <span class="badge">Drag & Drop / Re-order</span>
       </div>
       <p>Customize which feeds are published to Nuvio and their display order. Drag rows or use the arrow buttons to rearrange, then toggle feeds on or off:</p>
@@ -299,34 +408,132 @@ export function setupPage() {
 
       <div class="row" style="margin-top:16px">
         <button id="saveFeeds">Save Feeds Layout</button>
+        <button class="secondary" id="toggleCustomFeedForm">+ Create Custom Feed</button>
         <button class="secondary" id="resetFeeds">Reset to Default</button>
+      </div>
+
+      <!-- Custom Feed Builder Drawer / Form -->
+      <div id="customFeedBuilder" style="display:none;margin-top:18px;padding:18px;background:var(--panel-sub);border-radius:12px;border:1px solid var(--line)">
+        <h3 style="margin:0 0 12px;font-size:16px;color:var(--accent)">Create Bespoke Discovery Feed</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+          <div>
+            <label for="customFeedTitle">Feed Title</label>
+            <input id="customFeedTitle" placeholder="e.g. 90s Sci-Fi Thrillers, Studio Ghibli">
+          </div>
+          <div>
+            <label for="customFeedType">Media Type</label>
+            <select id="customFeedType">
+              <option value="movie">Movies</option>
+              <option value="series">TV Series</option>
+            </select>
+          </div>
+          <div>
+            <label for="customFeedGenre">Genre</label>
+            <select id="customFeedGenre">
+              <option value="">Any Genre</option>
+              <option value="28">Action (Movie) / Action & Adventure (TV)</option>
+              <option value="12">Adventure</option>
+              <option value="16">Animation</option>
+              <option value="35">Comedy</option>
+              <option value="80">Crime</option>
+              <option value="99">Documentary</option>
+              <option value="18">Drama</option>
+              <option value="14">Fantasy</option>
+              <option value="27">Horror</option>
+              <option value="9648">Mystery</option>
+              <option value="10749">Romance</option>
+              <option value="878">Sci-Fi (Movie) / Sci-Fi & Fantasy (TV)</option>
+              <option value="53">Thriller</option>
+              <option value="10752">War</option>
+              <option value="37">Western</option>
+            </select>
+          </div>
+          <div>
+            <label for="customFeedLanguage">Original Language</label>
+            <select id="customFeedLanguage">
+              <option value="">Any Language</option>
+              <option value="en">English (en)</option>
+              <option value="ja">Japanese (ja)</option>
+              <option value="ko">Korean (ko)</option>
+              <option value="fr">French (fr)</option>
+              <option value="es">Spanish (es)</option>
+              <option value="de">German (de)</option>
+              <option value="it">Italian (it)</option>
+            </select>
+          </div>
+          <div>
+            <label for="customFeedYear">Release Year / Decade</label>
+            <input id="customFeedYear" placeholder="e.g. 1999 or leave blank">
+          </div>
+          <div>
+            <label for="customFeedMinRating">Min IMDb/TMDb Rating (0-10)</label>
+            <input id="customFeedMinRating" type="number" step="0.5" min="0" max="10" placeholder="e.g. 7.5">
+          </div>
+          <div>
+            <label for="customFeedSort">Sort By</label>
+            <select id="customFeedSort">
+              <option value="popularity.desc">Most Popular</option>
+              <option value="vote_average.desc">Highest Rated</option>
+              <option value="primary_release_date.desc">Newest Releases</option>
+              <option value="revenue.desc">Top Box Office (Movies)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button id="addCustomFeedBtn">Add to My Feeds</button>
+          <button class="secondary" id="cancelCustomFeedBtn">Cancel</button>
+        </div>
       </div>
       <div class="message" id="feedsMessage"></div>
     </article>
 
-    <!-- 8. Manual Seeds (Optional Customization) -->
+    <!-- 9. Manual Seeds (Optional Customization) -->
     <article class="card wide">
       <div class="card-header">
-        <h2>8. Manual Recommendation Seeds (Optional)</h2>
+        <h2>9. Recommendation Seeds (Unlimited)</h2>
+        <span class="badge" id="seedsSummaryBadge">0 items</span>
       </div>
-      <p>If you prefer manual recommendations instead of or in addition to Nuvio Cloud library sync:</p>
+      <p>Add unlimited TV shows and movies for personalized recommendations and library-based release tracking. Comma or newline-separated:</p>
       <div class="row">
         <div style="flex:1;min-width:280px">
-          <label for="seedShows">Favorite TV Shows (commas or newlines)</label>
-          <textarea id="seedShows" rows="3" placeholder="King of the Hill, Severance, The Bear"></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;margin-bottom:6px">
+            <label for="seedShows" style="margin:0">Favorite TV Shows</label>
+            <span class="badge" id="tvSeedsBadge" style="font-size:11px">0 shows</span>
+          </div>
+          <textarea id="seedShows" rows="4" placeholder="King of the Hill, Severance, The Bear, Succession..."></textarea>
           <div class="row" style="margin-top:10px">
             <button class="secondary" id="saveSeeds">Save TV Seeds</button>
+            <button class="secondary" id="clearTvSeeds" style="opacity:0.7">Clear</button>
           </div>
         </div>
         <div style="flex:1;min-width:280px">
-          <label for="seedMovies">Favorite Movies (commas or newlines)</label>
-          <textarea id="seedMovies" rows="3" placeholder="Inception, Interstellar, The Dark Knight"></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;margin-bottom:6px">
+            <label for="seedMovies" style="margin:0">Favorite Movies</label>
+            <span class="badge" id="movieSeedsBadge" style="font-size:11px">0 movies</span>
+          </div>
+          <textarea id="seedMovies" rows="4" placeholder="Inception, Interstellar, The Dark Knight, Oppenheimer..."></textarea>
           <div class="row" style="margin-top:10px">
             <button class="secondary" id="saveMovieSeeds">Save Movie Seeds</button>
+            <button class="secondary" id="clearMovieSeeds" style="opacity:0.7">Clear</button>
           </div>
         </div>
       </div>
       <div class="message" id="manualSeedsMessage"></div>
+    </article>
+
+    <!-- 10. Backup & System Restore -->
+    <article class="card wide">
+      <div class="card-header">
+        <h2>10. Backup & System Restore</h2>
+        <span class="badge">1-Click Migration</span>
+      </div>
+      <p>Export all your profiles, recommendation seeds, custom feeds, and companion preferences to a portable backup JSON file, or restore an existing backup.</p>
+      <div class="row" style="margin-top:14px">
+        <button id="downloadBackupBtn">Download Backup (.json)</button>
+        <button class="secondary" id="triggerRestoreBtn">Restore from Backup File</button>
+        <input type="file" id="restoreFileInput" accept=".json" style="display:none">
+      </div>
+      <div class="message" id="backupMessage"></div>
     </article>
   </section>
 
@@ -362,6 +569,7 @@ export function setupPage() {
   let pluginValue = '';
   let catalogValue = '';
   let feedsData = [];
+  let detectedTz = 'UTC';
 
   function renderFeeds() {
     const list = q('feedList');
@@ -372,16 +580,18 @@ export function setupPage() {
       item.className = 'feed-item' + (feed.enabled ? '' : ' disabled');
       item.draggable = true;
       item.dataset.index = idx;
+      const isCustom = Boolean(feed.isCustom || String(feed.id).startsWith('custom-'));
       item.innerHTML = \`
         <span class="feed-drag" title="Drag to reorder">⋮⋮</span>
         <span class="feed-badge">\${feed.type === 'movie' ? 'MOV' : 'TV'}</span>
         <div class="feed-info">
-          <div class="feed-title">\${feed.name}</div>
+          <div class="feed-title">\${feed.name} \${isCustom ? '<span class="badge" style="font-size:10px;padding:2px 6px;margin-left:4px;color:var(--accent)">Custom</span>' : ''}</div>
           <div class="feed-desc">\${feed.description || ''}</div>
         </div>
         <div class="feed-actions">
           <button type="button" class="feed-btn up-btn" title="Move Up" \${idx === 0 ? 'disabled' : ''}>▲</button>
           <button type="button" class="feed-btn down-btn" title="Move Down" \${idx === feedsData.length - 1 ? 'disabled' : ''}>▼</button>
+          \${isCustom ? '<button type="button" class="feed-btn del-btn" title="Delete custom feed" style="color:var(--bad)">✕</button>' : ''}
           <label class="feed-toggle">
             <input type="checkbox" class="feed-check" \${feed.enabled ? 'checked' : ''}>
             <span>\${feed.enabled ? 'On' : 'Off'}</span>
@@ -408,6 +618,17 @@ export function setupPage() {
           renderFeeds();
         }
       };
+
+      // Custom Delete
+      if (item.querySelector('.del-btn')) {
+        item.querySelector('.del-btn').onclick = (e) => {
+          e.stopPropagation();
+          if (confirm('Delete custom feed "' + feed.name + '"?')) {
+            feedsData.splice(idx, 1);
+            renderFeeds();
+          }
+        };
+      }
 
       // Toggle
       const chk = item.querySelector('.feed-check');
@@ -472,6 +693,14 @@ export function setupPage() {
     return res.json().catch(() => ({}));
   }
 
+  function updateSeedBadges(tvSeeds = [], movieSeeds = []) {
+    const tvCount = Array.isArray(tvSeeds) ? tvSeeds.length : 0;
+    const movieCount = Array.isArray(movieSeeds) ? movieSeeds.length : 0;
+    if (q('tvSeedsBadge')) q('tvSeedsBadge').textContent = tvCount + (tvCount === 1 ? ' show' : ' shows');
+    if (q('movieSeedsBadge')) q('movieSeedsBadge').textContent = movieCount + (movieCount === 1 ? ' movie' : ' movies');
+    if (q('seedsSummaryBadge')) q('seedsSummaryBadge').textContent = (tvCount + movieCount) + ' total seeds';
+  }
+
   async function loadState() {
     try {
       const s = await api('/api/setup/state');
@@ -480,9 +709,13 @@ export function setupPage() {
       q('tmdbText').textContent = s.tmdbConfigured ? 'Key Saved' : 'Key Missing';
       
       const isConfigured = s.companionKeyConfigured && s.pluginKeyConfigured;
-      const addrDisplay = s.publicUrl ? s.publicUrl.replace(/^https?:\\/\\//, '') : 'Ready';
+      const addrDisplay = s.publicUrl ? s.publicUrl.replace(/^https?:\/\//, '') : 'Ready';
       q('serviceBadge').innerHTML = '<span class="dot ' + (isConfigured ? 'good' : 'warn') + '"></span> ' + (isConfigured ? 'Online (' + addrDisplay + ')' : 'Setup Incomplete');
       q('serviceText').textContent = isConfigured ? 'Configured & Online' : 'Action Required';
+
+      detectedTz = s.detectedTimezone || (Intl?.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
+      q('userTimezone').value = s.userTimezone || detectedTz;
+      q('timezoneStatus').textContent = s.userTimezone ? 'Saved: ' + s.userTimezone : 'Device: ' + detectedTz;
 
       if (s.docker) {
         q('novnc').hidden = false;
@@ -495,6 +728,7 @@ export function setupPage() {
       if (Array.isArray(s.movieRecommendationSeeds)) {
         q('seedMovies').value = s.movieRecommendationSeeds.map(x => x.name).join(', ');
       }
+      updateSeedBadges(s.recommendationSeeds, s.movieRecommendationSeeds);
 
       // Feeds Customizer
       if (Array.isArray(s.catalogsConfig)) {
@@ -538,6 +772,24 @@ export function setupPage() {
     } catch (e) { msg('tmdbMessage', e.message, 'error'); }
   };
 
+  q('useDetectedTz').onclick = () => {
+    const localTz = Intl?.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : detectedTz;
+    q('userTimezone').value = localTz;
+  };
+
+  q('saveTimezone').onclick = async () => {
+    try {
+      q('saveTimezone').disabled = true;
+      const res = await api('/api/setup/config', { method: 'POST', body: JSON.stringify({ userTimezone: q('userTimezone').value }) });
+      q('timezoneStatus').textContent = res.userTimezone ? 'Saved: ' + res.userTimezone : 'Device: ' + detectedTz;
+      msg('timezoneMessage', 'Timezone saved! Calendar and episode dates will format accordingly.', 'ok');
+    } catch (e) {
+      msg('timezoneMessage', e.message, 'error');
+    } finally {
+      q('saveTimezone').disabled = false;
+    }
+  };
+
   q('openLogin').onclick = async () => {
     try {
       q('openLogin').disabled = true;
@@ -556,7 +808,9 @@ export function setupPage() {
       msg('loginMessage', s.authenticated ? 'MovieBoxPro session is active and ready.' : 'Session not detected. Complete login and check again.', s.authenticated ? 'ok' : 'error');
     } catch (e) {
       msg('loginMessage', e.message, 'error');
-    } finally { q('checkLogin').disabled = false; }
+    } finally {
+      q('checkLogin').disabled = false;
+    }
   };
 
   q('loginCloud').onclick = async () => {
@@ -679,14 +933,130 @@ export function setupPage() {
     }
   };
 
+  q('toggleCustomFeedForm').onclick = () => {
+    const el = q('customFeedBuilder');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  };
+
+  q('cancelCustomFeedBtn').onclick = () => {
+    q('customFeedBuilder').style.display = 'none';
+  };
+
+  q('addCustomFeedBtn').onclick = () => {
+    const title = q('customFeedTitle').value.trim();
+    if (!title) {
+      alert('Please enter a title for your custom feed.');
+      return;
+    }
+    const type = q('customFeedType').value;
+    const genre = q('customFeedGenre').value;
+    const lang = q('customFeedLanguage').value;
+    const year = q('customFeedYear').value.trim();
+    const minRating = q('customFeedMinRating').value.trim();
+    const sort = q('customFeedSort').value;
+
+    const slug = 'custom-' + title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '-' + Date.now().toString(36).slice(-4);
+    const filters = {};
+    if (genre) filters.with_genres = genre;
+    if (lang) filters.with_original_language = lang;
+    if (year) {
+      if (type === 'series') filters.first_air_date_year = year;
+      else filters.primary_release_year = year;
+    }
+    if (minRating) {
+      filters.vote_average_gte = minRating;
+      filters.vote_count_gte = '10';
+    }
+    if (sort) filters.sort_by = sort;
+
+    const newFeed = {
+      type,
+      id: slug,
+      name: title,
+      description: 'Custom ' + (type === 'movie' ? 'movie' : 'TV') + ' feed',
+      filters,
+      enabled: true,
+      isCustom: true
+    };
+
+    feedsData.unshift(newFeed);
+    renderFeeds();
+    q('customFeedTitle').value = '';
+    q('customFeedYear').value = '';
+    q('customFeedMinRating').value = '';
+    q('customFeedBuilder').style.display = 'none';
+    msg('feedsMessage', 'Added "' + title + '" to feeds! Click "Save Feeds Layout" to publish.', 'ok');
+  };
+
+  q('downloadBackupBtn').onclick = async () => {
+    try {
+      q('downloadBackupBtn').disabled = true;
+      msg('backupMessage', 'Generating backup payload…');
+      const backupData = await api('/api/setup/backup');
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = 'nuvio-companion-backup-' + dateStr + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      msg('backupMessage', 'Backup downloaded successfully.', 'ok');
+    } catch (e) {
+      msg('backupMessage', e.message, 'error');
+    } finally {
+      q('downloadBackupBtn').disabled = false;
+    }
+  };
+
+  q('triggerRestoreBtn').onclick = () => {
+    q('restoreFileInput').click();
+  };
+
+  q('restoreFileInput').onchange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        if (!confirm('Restore configuration from "' + file.name + '"? This will overwrite active profiles and settings.')) return;
+        msg('backupMessage', 'Restoring system configuration…');
+        const res = await api('/api/setup/restore', {
+          method: 'POST',
+          body: JSON.stringify(parsed)
+        });
+        msg('backupMessage', 'Restored ' + res.restoredProfilesCount + ' profiles successfully! Reloading…', 'ok');
+        setTimeout(() => window.location.reload(), 1200);
+      } catch (err) {
+        msg('backupMessage', 'Restore failed: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   q('saveSeeds').onclick = async () => {
     try {
       q('saveSeeds').disabled = true;
       const d = await api('/api/setup/recommendations', { method: 'POST', body: JSON.stringify({ shows: q('seedShows').value }) });
       q('seedShows').value = d.seeds.map(x => x.name).join(', ');
+      updateSeedBadges(d.seeds, null);
       msg('manualSeedsMessage', 'Saved ' + d.seeds.length + ' TV recommendation seeds.', 'ok');
     } catch (e) { msg('manualSeedsMessage', e.message, 'error'); }
     finally { q('saveSeeds').disabled = false; }
+  };
+
+  q('clearTvSeeds').onclick = async () => {
+    if (!confirm('Clear all saved TV seeds?')) return;
+    try {
+      q('seedShows').value = '';
+      await api('/api/setup/recommendations', { method: 'POST', body: JSON.stringify({ shows: '' }) }).catch(() => {});
+      updateSeedBadges([], null);
+      msg('manualSeedsMessage', 'TV recommendation seeds cleared.', 'ok');
+    } catch (e) { msg('manualSeedsMessage', e.message, 'error'); }
   };
 
   q('saveMovieSeeds').onclick = async () => {
@@ -694,12 +1064,181 @@ export function setupPage() {
       q('saveMovieSeeds').disabled = true;
       const d = await api('/api/setup/recommendations/movies', { method: 'POST', body: JSON.stringify({ movies: q('seedMovies').value }) });
       q('seedMovies').value = d.seeds.map(x => x.name).join(', ');
+      updateSeedBadges(null, d.seeds);
       msg('manualSeedsMessage', 'Saved ' + d.seeds.length + ' Movie recommendation seeds.', 'ok');
     } catch (e) { msg('manualSeedsMessage', e.message, 'error'); }
     finally { q('saveMovieSeeds').disabled = false; }
   };
 
-  loadState();
+  q('clearMovieSeeds').onclick = async () => {
+    if (!confirm('Clear all saved Movie seeds?')) return;
+    try {
+      q('seedMovies').value = '';
+      await api('/api/setup/recommendations/movies', { method: 'POST', body: JSON.stringify({ movies: '' }) }).catch(() => {});
+      updateSeedBadges(null, []);
+      msg('manualSeedsMessage', 'Movie recommendation seeds cleared.', 'ok');
+    } catch (e) { msg('manualSeedsMessage', e.message, 'error'); }
+  };
+
+  let allProfiles = [];
+  let currentProfileId = 'default';
+
+  async function loadProfilesList() {
+    try {
+      const data = await api('/api/setup/profiles');
+      allProfiles = Array.isArray(data.profiles) ? data.profiles : [];
+      const select = q('profileSelect');
+      select.innerHTML = '';
+      allProfiles.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name + (p.id === 'default' ? ' (Default)' : '');
+        select.appendChild(opt);
+      });
+      select.value = currentProfileId;
+      q('profileBadgeCount').textContent = allProfiles.length + (allProfiles.length === 1 ? ' Profile Active' : ' Profiles Active');
+      updateActiveProfileView();
+    } catch {}
+  }
+
+  function updateActiveProfileView() {
+    const p = allProfiles.find(x => x.id === currentProfileId) || allProfiles[0];
+    if (!p) return;
+    currentProfileId = p.id;
+    q('activeProfileNameDisplay').textContent = p.name;
+    q('deleteProfileBtn').style.display = p.id === 'default' ? 'none' : 'inline-flex';
+    pluginValue = p.pluginUrl;
+    catalogValue = p.catalogUrl;
+    if (q('pluginUrl').style.display !== 'none') q('pluginUrl').value = p.pluginUrl;
+    if (q('catalogUrl').style.display !== 'none') q('catalogUrl').value = p.catalogUrl;
+    checkProfileStatus(p.id);
+  }
+
+  async function checkProfileStatus(id) {
+    try {
+      q('activeProfileSessionDisplay').textContent = 'Checking…';
+      const s = await api('/api/setup/profiles/' + encodeURIComponent(id) + '/status');
+      q('activeProfileSessionDisplay').innerHTML = s.authenticated
+        ? '<span style="color:var(--good)">🟢 Authenticated</span>'
+        : '<span style="color:var(--bad)">🔴 Login Required</span>';
+    } catch {
+      q('activeProfileSessionDisplay').textContent = 'Unknown';
+    }
+  }
+
+  q('profileSelect').onchange = (e) => {
+    currentProfileId = e.target.value;
+    updateActiveProfileView();
+  };
+
+  q('addProfileBtn').onclick = async () => {
+    const name = prompt('Enter a name for the new profile (e.g. Kids Room, Bedroom, Partner):');
+    if (!name || !name.trim()) return;
+    try {
+      const res = await api('/api/setup/profiles', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+      currentProfileId = res.profile.id;
+      await loadProfilesList();
+      msg('profileActionMessage', 'Created profile "' + res.profile.name + '" with dedicated keys and browser session!', 'ok');
+    } catch (e) {
+      msg('profileActionMessage', e.message, 'error');
+    }
+  };
+
+  q('deleteProfileBtn').onclick = async () => {
+    if (!confirm('Are you sure you want to delete profile "' + q('activeProfileNameDisplay').textContent + '"?')) return;
+    try {
+      await api('/api/setup/profiles/' + encodeURIComponent(currentProfileId), { method: 'DELETE' });
+      currentProfileId = 'default';
+      await loadProfilesList();
+      msg('profileActionMessage', 'Profile deleted.', 'ok');
+    } catch (e) {
+      msg('profileActionMessage', e.message, 'error');
+    }
+  };
+
+  q('profileLoginBtn').onclick = async () => {
+    try {
+      q('profileLoginBtn').disabled = true;
+      await api('/api/setup/profiles/' + encodeURIComponent(currentProfileId) + '/login', { method: 'POST' });
+      msg('profileActionMessage', 'Dedicated login window opened for profile. Complete login there, then check session.', 'ok');
+    } catch (e) {
+      msg('profileActionMessage', e.message, 'error');
+    } finally {
+      q('profileLoginBtn').disabled = false;
+    }
+  };
+
+  q('profileStatusBtn').onclick = async () => {
+    await checkProfileStatus(currentProfileId);
+  };
+
+  async function loadAnalytics() {
+    try {
+      const a = await api('/api/setup/analytics');
+      q('statAvgTime').textContent = (a.avgDurationMs || 0) + ' ms';
+      q('statCacheRatio').textContent = (a.cacheStats?.hitRatio ?? 100) + '%';
+      q('statTotalStreams').textContent = String(a.totalStreamsResolved || 0);
+      q('statCacheEntries').textContent = String(a.cacheStats?.entries || 0);
+      
+      const list = q('activityList');
+      if (Array.isArray(a.recentActivity) && a.recentActivity.length) {
+        list.innerHTML = '';
+        a.recentActivity.forEach(act => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:6px;background:rgba(255,255,255,0.03);font-size:12px;gap:8px';
+          const time = new Date(act.timestamp).toLocaleTimeString();
+          const label = (act.mediaType === 'tv' ? 'TV S' + String(act.season).padStart(2,'0') + 'E' + String(act.episode).padStart(2,'0') : 'Movie') + ' (' + (act.tmdbId || '') + ')';
+          const badgeColor = act.success ? 'good' : 'bad';
+          row.innerHTML = '<div><span class="dot ' + badgeColor + '" style="margin-right:6px"></span><strong>' + label + '</strong> <span style="color:var(--muted);margin-left:6px">[' + (act.profileName || 'Default') + ']</span></div><div style="color:var(--muted)">' + act.durationMs + 'ms • ' + time + '</div>';
+          list.appendChild(row);
+        });
+      }
+    } catch {}
+  }
+
+  q('refreshAnalyticsBtn').onclick = loadAnalytics;
+
+  async function checkHealth() {
+    try {
+      const h = await api('/api/setup/health');
+      if (h.moviebox) {
+        const isAuth = Boolean(h.moviebox.authenticated);
+        q('movieboxText').textContent = isAuth ? 'Authenticated' : 'Login Required';
+        q('mbpBadge').innerHTML = '<span class="dot ' + (isAuth ? 'good' : 'bad') + '"></span> MovieBoxPro: ' + (isAuth ? 'Connected' : 'Login Required');
+        if (!isAuth && h.moviebox.lastChecked) {
+          msg('loginMessage', 'Session expired or not logged in. Complete login to restore playback.', 'error');
+        }
+      }
+      await loadAnalytics();
+    } catch {}
+  }
+
+  async function checkVersionUpdate() {
+    try {
+      const v = await api('/api/setup/version-check');
+      if (v.hasUpdate) {
+        q('updateVersionTag').textContent = 'v' + v.latestVersion;
+        if (v.releaseNotes) q('updateNotesPreview').textContent = v.releaseNotes.slice(0, 120) + '…';
+        if (v.releaseUrl) q('updateReleaseLink').href = v.releaseUrl;
+        q('updateBanner').style.display = 'block';
+      }
+    } catch {}
+  }
+
+  q('dismissUpdateBtn').onclick = () => {
+    q('updateBanner').style.display = 'none';
+  };
+
+  // Register PWA Service Worker if supported
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  loadState()
+    .then(loadProfilesList)
+    .then(checkHealth)
+    .then(checkVersionUpdate);
+  setInterval(checkHealth, 30000);
 })();
 </script>
 </body>

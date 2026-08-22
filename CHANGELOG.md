@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.0-beta.3
+
+- **"If You Liked This..." Similar Titles & Recommendations**: High-accuracy recommendations and similar titles appended to Nuvio detail screens and description headers (`meta.similar` & `💡 More Like This: ...`) in a single high-speed TMDb query.
+- **Exact Airing Time & Relative Countdown Badges**: Timezone-aware relative status badges (`🔴 Airing Today`, `⏳ Premieres Tomorrow`, `⏳ Premieres in X days`, `🟢 Available`) attached directly to episode lists and calendar feeds.
+- **Rotten Tomatoes, Metacritic & IMDb Ratings**: Multi-source ratings aggregator attaching Tomatometer (🍅), Audience Score (🍿), and TMDb/IMDb rating breakdown badges to title metadata descriptions in Nuvio.
+- **Built-in Video Stream Proxy (`/stream/proxy`)**: Reverse proxy route supporting HTTP 206 Partial Content Range video seeking and header spoofing to fix 403 Forbidden playback errors on strict player devices.
+- **Installable PWA Dashboard**: Web App Manifest, Apple mobile web app metadata, and Service Worker enabling 1-tap "Add to Home Screen" installation on iPhone, iPad, and Android phones.
+- **In-Dashboard Update Checker**: GitHub release version checker with an in-dashboard update banner, release notes preview, and direct GitHub release links.
+- **Custom Feed Builder**: Create bespoke movie and TV series catalog feeds using TMDb discovery filters (genres, release years/decades, languages, minimum ratings, studios, and sorting) directly in the Setup Dashboard.
+- **1-Click Backup & System Restore**: Export full system backups (.json) containing all profiles, seeds, custom feeds, and preferences, and restore in one click with automatic migration.
+- **Multi-Profile & Multi-Device System**: Create and manage multiple named profiles (e.g. *Living Room*, *Kids*, *Bedroom*) with isolated MovieBoxPro Chrome sessions, separate recommendation seeds, and dedicated Nuvio provider plugin & catalog manifest URLs.
+- **Stream Activity & Cache Analytics**: Real-time performance tracking in the Setup Dashboard showing average stream resolution times, TMDb cache hit ratios, in-memory cache counts, and a live stream activity log.
+- **Cast, Crew, Trailers & Franchise Collections**: Enriched title metadata in Nuvio with top cast members, directors, writers, YouTube trailer links, and movie universe collection sets.
+- **Unlimited TV Series & Movies Seeds**: Removed all arbitrary limits (previously 15-25 items) so full Nuvio Cloud libraries and extensive manual seed lists are supported.
+- **Timezone-Aware Release Calendar**: Added `USER_TIMEZONE` configuration with auto-detection from client devices to ensure "New Today - Library Based", "Airing Today", and "This Week" calculate boundaries matching your local calendar day.
+- **Timezone-Safe Episode Premieres**: Episode air dates now format with timezone-safe UTC noon ISO timestamps to prevent client apps in negative UTC offsets (e.g. UTC-4 to UTC-8) from shifting episode premiere dates back to the previous evening.
+- **Curated Streaming Networks & Themes**: Added customizable catalog feeds for major networks (*HBO / Max Originals*, *Apple TV+*, *Netflix Originals*, *Disney+*, *Prime Video*, *Paramount+*, *Hulu / FX*) and curated genres (*Anime Trending*, *A24 Cinema*, *Top Korean Dramas*).
+- **Automatic Background Cloud Sync**: Recurring 6-hour background sync timer to keep Nuvio Cloud library items and recommendation seeds automatically updated.
+- **Session Expiry Monitor & Health Check**: Added `/api/setup/health` endpoint and automatic 60-minute session monitor with real-time UI status updates and session expiration alerts.
+- **Batched Concurrent Lookups & In-Memory TTL Caching**: High-speed resolution of large libraries (`batchMap`) with in-memory caching for TMDb catalog queries and metadata lookups.
+- **Setup Dashboard Enhancements**: Added Timezone preferences card with auto-detection button, live seed counters for TV shows and Movies with clear buttons, and real-time health polling.
+
 ## 1.0.0-beta.2 (v1 Beta 2)
 
 - **IntroDB (api.introdb.app) Integration**: Automatically fetch crowdsourced intro, outro, and recap timestamps for TV series episodes.

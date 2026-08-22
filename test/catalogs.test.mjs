@@ -12,7 +12,13 @@ import {
   parseCatalogExtra,
   resolveSeedShows,
   resolveSeedMovies,
-  toMeta
+  toMeta,
+  getUserTimezone,
+  getTodayDateString,
+  getDateOffsetString,
+  formatEpisodeAirDate,
+  relativeAirStatus,
+  batchMap
 } from "../src/catalogs.mjs";
 
 const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -126,24 +132,61 @@ test("loadMeta populates episode videos array for series and single meta for mov
         ]
       });
     }
-    return response({ id: 123, name: "Test Show", seasons: [{ season_number: 1, episode_count: 2 }] });
+    return response({
+      id: 123,
+      name: "Test Show",
+      seasons: [{ season_number: 1, episode_count: 2 }],
+      credits: {
+        cast: [{ name: "Actor One" }, { name: "Actor Two" }],
+        crew: [{ name: "Director One", job: "Director" }]
+      },
+      videos: {
+        results: [{ site: "YouTube", type: "Trailer", key: "abc123xyz" }]
+      }
+    });
   }, "series");
 
   assert.equal(seriesMeta.name, "Test Show");
   assert.equal(seriesMeta.type, "series");
+  assert.deepEqual(seriesMeta.cast, ["Actor One", "Actor Two"]);
+  assert.deepEqual(seriesMeta.director, ["Director One"]);
+  assert.deepEqual(seriesMeta.trailers, [{ source: "abc123xyz", type: "Trailer" }]);
   assert.equal(seriesMeta.videos.length, 2);
   assert.equal(seriesMeta.videos[0].id, "tmdb:123:1:1");
   assert.equal(seriesMeta.videos[0].title, "Pilot");
   assert.equal(seriesMeta.videos[0].season, 1);
   assert.equal(seriesMeta.videos[0].episode, 1);
+  assert.equal(seriesMeta.videos[0].released, "2026-01-01T12:00:00.000Z");
 
   const movieMeta = await loadMeta(456, async () => {
-    return response({ id: 456, title: "Test Movie", release_date: "2026-05-01" });
+    return response({
+      id: 456,
+      title: "Test Movie",
+      release_date: "2026-05-01",
+      vote_average: 8.4,
+      vote_count: 1250,
+      overview: "A mind-bending movie experience.",
+      belongs_to_collection: { id: 789, name: "Test Franchise Collection", poster_path: "/franchise.jpg" },
+      recommendations: {
+        results: [
+          { id: 999, title: "Recommended Movie 1", vote_average: 8.0, release_date: "2025-01-01" },
+          { id: 888, title: "Recommended Movie 2", vote_average: 7.8 }
+        ]
+      }
+    });
   }, "movie");
 
   assert.equal(movieMeta.name, "Test Movie");
   assert.equal(movieMeta.type, "movie");
+  assert.equal(movieMeta.imdbRating, 8.4);
+  assert.equal(movieMeta.ratings.rottenTomatoes, "84%");
+  assert.match(movieMeta.description, /⭐ TMDb: 8\.4\/10/);
+  assert.match(movieMeta.description, /💡 More Like This: Recommended Movie 1, Recommended Movie 2/);
+  assert.equal(movieMeta.similar.length, 2);
+  assert.equal(movieMeta.similar[0].name, "Recommended Movie 1");
   assert.equal(movieMeta.videos, undefined);
+  assert.equal(movieMeta.collection.name, "Test Franchise Collection");
+  assert.equal(movieMeta.collection.id, 789);
 });
 
 test("loadMeta resolves IMDb IDs and formats episode IDs with IMDb prefix", async () => {
@@ -163,6 +206,7 @@ test("loadMeta resolves IMDb IDs and formats episode IDs with IMDb prefix", asyn
   assert.equal(imdbMeta.name, "The Librarians: The Next Chapter");
   assert.equal(imdbMeta.videos.length, 1);
   assert.equal(imdbMeta.videos[0].id, "tt27799594:1:1");
+  assert.equal(imdbMeta.videos[0].released, "2025-05-25T12:00:00.000Z");
 });
 
 test("library-today returns airing shows when present and empty array when none airing", async () => {
@@ -185,22 +229,85 @@ test("library-today returns airing shows when present and empty array when none 
   assert.deepEqual(emptyMetas, []);
 });
 
-test("show names resolve to private recommendation seeds", async () => {
-  const seeds = await resolveSeedShows("King of the Hill, 456", async (url) => {
-    if (url.pathname.includes("search/tv")) return response({ results: [{ id: 111, name: "King of the Hill" }] });
-    return response({ id: 456, name: "Another Show" });
+test("show names resolve to private recommendation seeds without arbitrary limits", async () => {
+  // Test resolving 20 shows (exceeding previous 15 limit)
+  const inputList = Array.from({ length: 20 }, (_, i) => `Show ${i + 1}`).join(", ");
+  const seeds = await resolveSeedShows(inputList, async (url) => {
+    const q = url.searchParams.get("query");
+    return response({ results: [{ id: 1000 + Number(q.replace(/\D/g, "")), name: q }] });
   });
-  assert.deepEqual(seeds, [{ id: 111, name: "King of the Hill" }, { id: 456, name: "Another Show" }]);
-  assert.deepEqual(parseSeeds(JSON.stringify(seeds)), seeds);
+  assert.equal(seeds.length, 20);
+  assert.equal(seeds[19].name, "Show 20");
+  assert.equal(parseSeeds(JSON.stringify(seeds)).length, 20);
 });
 
-test("movie names resolve to movie recommendation seeds", async () => {
-  const movieSeeds = await resolveSeedMovies("Inception, 789", async (url) => {
-    if (url.pathname.includes("search/movie")) return response({ results: [{ id: 27205, title: "Inception" }] });
-    return response({ id: 789, title: "Another Movie" });
+test("movie names resolve to movie recommendation seeds without arbitrary limits", async () => {
+  const inputList = Array.from({ length: 20 }, (_, i) => `Movie ${i + 1}`).join("\n");
+  const movieSeeds = await resolveSeedMovies(inputList, async (url) => {
+    const q = url.searchParams.get("query");
+    return response({ results: [{ id: 2000 + Number(q.replace(/\D/g, "")), title: q }] });
   });
-  assert.deepEqual(movieSeeds, [{ id: 27205, name: "Inception" }, { id: 789, name: "Another Movie" }]);
-  assert.deepEqual(parseMovieSeeds(JSON.stringify(movieSeeds)), movieSeeds);
+  assert.equal(movieSeeds.length, 20);
+  assert.equal(movieSeeds[19].name, "Movie 20");
+  assert.equal(parseMovieSeeds(JSON.stringify(movieSeeds)).length, 20);
+});
+
+test("parseSeeds and parseMovieSeeds support unlimited seeds (>50 items)", () => {
+  const bigList = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Title ${i + 1}` }));
+  const parsedTv = parseSeeds(JSON.stringify(bigList));
+  const parsedMovies = parseMovieSeeds(JSON.stringify(bigList));
+  assert.equal(parsedTv.length, 60);
+  assert.equal(parsedMovies.length, 60);
+});
+
+test("timezone helpers calculate correct local dates and boundaries", () => {
+  // Test specific instant: 2026-08-22T02:00:00Z (which is 2026-08-21 in America/New_York EDT UTC-4)
+  const utcEarlyInstant = new Date("2026-08-22T02:00:00Z");
+
+  const nyDate = getTodayDateString(utcEarlyInstant, "America/New_York");
+  const tokyoDate = getTodayDateString(utcEarlyInstant, "Asia/Tokyo");
+  const utcDate = getTodayDateString(utcEarlyInstant, "UTC");
+
+  assert.equal(nyDate, "2026-08-21");
+  assert.equal(tokyoDate, "2026-08-22");
+  assert.equal(utcDate, "2026-08-22");
+
+  // Test offset days
+  const nyNextWeek = getDateOffsetString(7, utcEarlyInstant, "America/New_York");
+  assert.equal(nyNextWeek, "2026-08-28");
+});
+
+test("formatEpisodeAirDate produces timezone-safe UTC noon ISO strings", () => {
+  assert.equal(formatEpisodeAirDate("2026-08-22"), "2026-08-22T12:00:00.000Z");
+  assert.equal(formatEpisodeAirDate("2025-01-01"), "2025-01-01T12:00:00.000Z");
+  assert.equal(formatEpisodeAirDate(undefined), undefined);
+  assert.equal(formatEpisodeAirDate(""), undefined);
+});
+
+test("relativeAirStatus formats countdown and status badges accurately", () => {
+  const fixedNow = new Date("2026-08-22T14:00:00Z");
+  assert.equal(relativeAirStatus("2026-08-22", fixedNow, "UTC"), "🔴 Airing Today");
+  assert.equal(relativeAirStatus("2026-08-23", fixedNow, "UTC"), "⏳ Premieres Tomorrow");
+  assert.equal(relativeAirStatus("2026-08-26", fixedNow, "UTC"), "⏳ Premieres in 4 days");
+  assert.equal(relativeAirStatus("2026-08-20", fixedNow, "UTC"), "🟢 Available");
+  assert.equal(relativeAirStatus(null, fixedNow), null);
+});
+
+test("batchMap executes tasks in bounded concurrent chunks", async () => {
+  const items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  let maxConcurrent = 0;
+  let active = 0;
+
+  const results = await batchMap(items, 3, async (num) => {
+    active++;
+    maxConcurrent = Math.max(maxConcurrent, active);
+    await new Promise((r) => setTimeout(r, 5));
+    active--;
+    return num * 2;
+  });
+
+  assert.deepEqual(results, [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
+  assert.ok(maxConcurrent <= 3);
 });
 
 test("recommendations combine seeds, rank overlaps, and exclude seed shows/movies", async () => {
@@ -254,3 +361,69 @@ test("metadata route accepts Nuvio's encoded TMDb IDs and IMDb IDs for series an
   );
   assert.equal(matchCatalogRequestPath("/catalog/private-key/meta/series/invalid_id.json"), undefined);
 });
+
+test("curated network and genre catalogs load properly", async () => {
+  const hboMetas = await loadCatalog("hbo-max", [], async (url) => {
+    assert.ok(url.searchParams.get("with_networks")?.includes("49"));
+    return response({ results: [{ id: 1399, name: "Game of Thrones", first_air_date: "2011-04-17" }] });
+  }, new Date(), "series");
+  assert.equal(hboMetas.length, 1);
+  assert.equal(hboMetas[0].name, "Game of Thrones");
+
+  const a24Metas = await loadCatalog("a24-films", [], async (url) => {
+    assert.equal(url.searchParams.get("with_companies"), "41077");
+    return response({ results: [{ id: 496243, title: "Parasite", release_date: "2019-05-30" }] });
+  }, new Date(), "movie");
+  assert.equal(a24Metas.length, 1);
+  assert.equal(a24Metas[0].name, "Parasite");
+
+  const animeMetas = await loadCatalog("anime-trending", [], async (url) => {
+    assert.equal(url.searchParams.get("with_genres"), "16");
+    assert.equal(url.searchParams.get("with_original_language"), "ja");
+    return response({ results: [{ id: 85937, name: "Demon Slayer", first_air_date: "2019-04-06" }] });
+  }, new Date(), "series");
+  assert.equal(animeMetas.length, 1);
+  assert.equal(animeMetas[0].name, "Demon Slayer");
+});
+
+test("parseCatalogConfig and loadCatalog handle custom bespoke discovery feeds", async () => {
+  const customConfig = [
+    {
+      id: "custom-90s-scifi",
+      name: "90s Sci-Fi Thrillers",
+      type: "movie",
+      filters: {
+        with_genres: "878,53",
+        primary_release_year: "1999",
+        vote_average_gte: "7.0",
+        sort_by: "popularity.desc"
+      }
+    }
+  ];
+
+  const parsed = parseCatalogConfig(customConfig);
+  const customItem = parsed.find((c) => c.id === "custom-90s-scifi");
+  assert.ok(customItem);
+  assert.equal(customItem.name, "90s Sci-Fi Thrillers");
+  assert.equal(customItem.isCustom, true);
+  assert.equal(customItem.filters.with_genres, "878,53");
+
+  const originalEnv = process.env.DISCOVERY_CATALOGS_CONFIG;
+  process.env.DISCOVERY_CATALOGS_CONFIG = JSON.stringify(customConfig);
+
+  try {
+    const customMetas = await loadCatalog("custom-90s-scifi", [], async (url) => {
+      assert.ok(url.pathname.includes("discover/movie"));
+      assert.equal(url.searchParams.get("with_genres"), "878,53");
+      assert.equal(url.searchParams.get("primary_release_year"), "1999");
+      assert.equal(url.searchParams.get("vote_average.gte"), "7.0");
+      return response({ results: [{ id: 603, title: "The Matrix", release_date: "1999-03-30" }] });
+    }, new Date(), "movie");
+
+    assert.equal(customMetas.length, 1);
+    assert.equal(customMetas[0].name, "The Matrix");
+  } finally {
+    process.env.DISCOVERY_CATALOGS_CONFIG = originalEnv;
+  }
+});
+

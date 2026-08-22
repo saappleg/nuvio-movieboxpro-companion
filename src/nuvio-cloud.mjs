@@ -1,4 +1,4 @@
-import { tmdb } from "./catalogs.mjs";
+import { tmdb, batchMap } from "./catalogs.mjs";
 
 const DEFAULT_NUVIO_CLOUD_URL = "https://api.nuvio.tv";
 export const DEFAULT_NUVIO_ANON_KEY = "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN";
@@ -221,30 +221,29 @@ export function extractMediaFromLibrary(rawItems) {
  * Resolves IMDb IDs or incomplete items to TMDb IDs using TMDb API if available.
  */
 export async function enrichLibrarySeeds(seeds, fetchImpl = fetch) {
-  const enriched = [];
-  for (const seed of seeds) {
+  const items = Array.isArray(seeds) ? seeds : [];
+  const results = await batchMap(items, 10, async (seed) => {
     if (seed.tmdbId && seed.name && !seed.name.startsWith("TMDb ")) {
-      enriched.push({ id: seed.tmdbId, name: seed.name });
-      continue;
+      return { id: seed.tmdbId, name: seed.name };
     }
     try {
       if (seed.imdbId) {
         const findData = await tmdb(`find/${seed.imdbId}`, { external_source: "imdb_id" }, fetchImpl);
         const match = seed.type === "series" ? findData.tv_results?.[0] : findData.movie_results?.[0];
         if (match?.id) {
-          enriched.push({ id: match.id, name: match.name || match.title || seed.name });
-          continue;
+          return { id: match.id, name: match.name || match.title || seed.name };
         }
       }
       if (seed.tmdbId) {
         const path = seed.type === "series" ? `tv/${seed.tmdbId}` : `movie/${seed.tmdbId}`;
         const details = await tmdb(path, { language: "en-US" }, fetchImpl);
-        enriched.push({ id: seed.tmdbId, name: details.name || details.title || seed.name });
-        continue;
+        return { id: seed.tmdbId, name: details.name || details.title || seed.name };
       }
     } catch {}
-  }
-  return enriched;
+    return null;
+  });
+
+  return results.filter(Boolean);
 }
 
 /**
@@ -254,10 +253,10 @@ export async function syncNuvioCloudLibrary({ accessToken, profileId, cloudUrl, 
   const rawItems = await fetchNuvioLibraryRaw(accessToken, profileId, cloudUrl, anonKey, fetchImpl);
   const { series, movies } = extractMediaFromLibrary(rawItems);
 
-  // Enrich top items to ensure valid TMDb IDs and names
+  // Enrich all library items to ensure valid TMDb IDs and names
   const [enrichedSeries, enrichedMovies] = await Promise.all([
-    enrichLibrarySeeds(series.slice(0, 20), fetchImpl),
-    enrichLibrarySeeds(movies.slice(0, 20), fetchImpl)
+    enrichLibrarySeeds(series, fetchImpl),
+    enrichLibrarySeeds(movies, fetchImpl)
   ]);
 
   return {
