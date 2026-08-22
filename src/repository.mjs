@@ -18,7 +18,7 @@ export function repositoryManifest(version, key, pathAuthenticated = true) {
       description: "Streams from your own MovieBoxPro account through your private companion",
       version,
       author: "Local",
-      supportedTypes: ["movie", "tv"],
+      supportedTypes: ["movie", "tv", "series"],
       filename: pathAuthenticated
         ? "providers/movieboxpro-local.js"
         : `providers/movieboxpro-local.js?key=${encodeURIComponent(key)}`,

@@ -31,8 +31,8 @@ function response(data) {
 test("catalog manifest exposes series and movie catalogs in requested order with search extras", () => {
   const manifest = catalogManifest(APP_VERSION, "private-key");
   assert.equal(manifest.version, APP_VERSION);
-  assert.deepEqual(manifest.types, ["movie", "series"]);
-  assert.deepEqual(manifest.idPrefixes, ["tmdb:", "tt"]);
+  assert.deepEqual(manifest.types, ["movie", "series", "tv"]);
+  assert.deepEqual(manifest.idPrefixes, ["tmdb:", "tt", "tmdb"]);
   assert.deepEqual(manifest.catalogs.map((item) => item.id), [
     "now-playing",
     "library-today",
