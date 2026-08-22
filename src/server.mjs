@@ -894,6 +894,8 @@ const server = http.createServer(async (req, res) => {
       if (catalogRequest.metaId) {
         return sendJson(res, 200, { meta: await loadMeta(catalogRequest.metaId, fetch, catalogRequest.mediaType) });
       }
+    }
+
     // PWA Assets
     if (url.pathname === "/app.webmanifest" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/manifest+json; charset=utf-8", "Cache-Control": "public, max-age=3600" });
@@ -931,9 +933,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/stream/proxy" && req.method === "GET") {
       const targetUrl = url.searchParams.get("url");
       const proxyKey = url.searchParams.get("key") || queryKey;
-      const activeProfile = await getProfileByCompanionKey(proxyKey) ||
+      const proxyProfile = await getProfileByCompanionKey(proxyKey) ||
         (process.env.COMPANION_KEY && proxyKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
-      if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized stream proxy request" });
+      if (!proxyProfile) return sendJson(res, 401, { error: "Unauthorized stream proxy request" });
 
       if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
         return sendJson(res, 400, { error: "Missing or invalid stream target URL" });
@@ -988,39 +990,39 @@ const server = http.createServer(async (req, res) => {
     const privateRepository = matchPrivateRepositoryPath(url.pathname);
     if ((url.pathname === "/manifest.json" || privateRepository?.resource === "manifest.json") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
-      const activeProfile = await getProfileByPluginKey(repositoryKey) ||
+      const repoProfile = await getProfileByPluginKey(repositoryKey) ||
         (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
-      if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
-      return sendJson(res, 200, repositoryManifest(APP_VERSION, activeProfile.pluginSetupKey, Boolean(privateRepository)));
+      if (!repoProfile) return sendJson(res, 401, { error: "Unauthorized" });
+      return sendJson(res, 200, repositoryManifest(APP_VERSION, repoProfile.pluginSetupKey, Boolean(privateRepository)));
     }
     if ((url.pathname === "/providers/movieboxpro-local.js" || privateRepository?.resource === "providers/movieboxpro-local.js") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
-      const activeProfile = await getProfileByPluginKey(repositoryKey) ||
+      const pluginProfile = await getProfileByPluginKey(repositoryKey) ||
         (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null);
-      if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
+      if (!pluginProfile) return sendJson(res, 401, { error: "Unauthorized" });
       requireConfig();
       const template = await readFile(new URL("../provider/movieboxpro-local.js", import.meta.url), "utf8");
       const source = template
         .replace("__COMPANION_URL__", JSON.stringify(publicUrl()))
-        .replace("__COMPANION_KEY__", JSON.stringify(activeProfile.companionKey));
+        .replace("__COMPANION_KEY__", JSON.stringify(pluginProfile.companionKey));
       return sendJavaScript(res, source);
     }
 
     // 5. Browser Session & Login
     if (url.pathname === "/login" && req.method === "GET") {
-      const activeProfile = await getProfileByCompanionKey(queryKey) ||
+      const loginProfile = await getProfileByCompanionKey(queryKey) ||
         (process.env.COMPANION_KEY && queryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
-      if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
-      const session = getProfileSession(activeProfile.id, activeProfile.browserProfileDir);
-      await serializeBrowserWork(() => openLoginWindow(activeProfile.id), session);
-      return sendJson(res, 200, { ok: true, message: `Complete login for profile "${activeProfile.name}" in the dedicated Chrome window, then check /status.` });
+      if (!loginProfile) return sendJson(res, 401, { error: "Unauthorized" });
+      const session = getProfileSession(loginProfile.id, loginProfile.browserProfileDir);
+      await serializeBrowserWork(() => openLoginWindow(loginProfile.id), session);
+      return sendJson(res, 200, { ok: true, message: `Complete login for profile "${loginProfile.name}" in the dedicated Chrome window, then check /status.` });
     }
     if (url.pathname === "/status" && req.method === "GET") {
-      const activeProfile = await getProfileByCompanionKey(queryKey) ||
+      const statusProfile = await getProfileByCompanionKey(queryKey) ||
         (process.env.COMPANION_KEY && queryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
-      if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
-      const session = getProfileSession(activeProfile.id, activeProfile.browserProfileDir);
-      return sendJson(res, 200, await serializeBrowserWork(() => browserSessionStatus(activeProfile.id), session));
+      if (!statusProfile) return sendJson(res, 401, { error: "Unauthorized" });
+      const session = getProfileSession(statusProfile.id, statusProfile.browserProfileDir);
+      return sendJson(res, 200, await serializeBrowserWork(() => browserSessionStatus(statusProfile.id), session));
     }
 
     // 6. IntroDB Skip Intro Segments API
@@ -1040,9 +1042,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname !== "/streams" || req.method !== "GET") return sendJson(res, 404, { error: "Not found" });
 
     requireConfig();
-    const activeProfile = await getProfileByCompanionKey(suppliedKey) ||
+    const streamProfile = await getProfileByCompanionKey(suppliedKey) ||
       (process.env.COMPANION_KEY && suppliedKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
-    if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
+    if (!streamProfile) return sendJson(res, 401, { error: "Unauthorized" });
 
     const rawType = String(url.searchParams.get("mediaType") || "movie").toLowerCase();
     const mediaType = /tv|series|show|episode/.test(rawType) ? "tv" : "movie";
