@@ -19,13 +19,27 @@ function slugify(name) {
 let cachedProfiles = null;
 
 export async function loadProfiles() {
-  if (cachedProfiles) return cachedProfiles;
+  if (cachedProfiles) {
+    const defaultProf = cachedProfiles.find((p) => p.id === "default");
+    if (defaultProf) {
+      if (process.env.COMPANION_KEY) defaultProf.companionKey = process.env.COMPANION_KEY;
+      if (process.env.PLUGIN_SETUP_KEY) defaultProf.pluginSetupKey = process.env.PLUGIN_SETUP_KEY;
+      if (process.env.MOVIEBOXPRO_PROFILE) defaultProf.browserProfileDir = path.resolve(process.env.MOVIEBOXPRO_PROFILE);
+    }
+    return cachedProfiles;
+  }
 
   try {
     const text = await readFile(PROFILES_FILE, "utf8");
     const parsed = JSON.parse(text);
     if (Array.isArray(parsed) && parsed.length) {
       cachedProfiles = parsed;
+      const defaultProf = cachedProfiles.find((p) => p.id === "default");
+      if (defaultProf) {
+        if (process.env.COMPANION_KEY) defaultProf.companionKey = process.env.COMPANION_KEY;
+        if (process.env.PLUGIN_SETUP_KEY) defaultProf.pluginSetupKey = process.env.PLUGIN_SETUP_KEY;
+        if (process.env.MOVIEBOXPRO_PROFILE) defaultProf.browserProfileDir = path.resolve(process.env.MOVIEBOXPRO_PROFILE);
+      }
       return cachedProfiles;
     }
   } catch {}
@@ -76,13 +90,23 @@ export async function getProfileById(id) {
 export async function getProfileByCompanionKey(key) {
   if (!key) return null;
   const profiles = await loadProfiles();
-  return profiles.find((p) => p.companionKey === key) || null;
+  const found = profiles.find((p) => p.companionKey === key);
+  if (found) return found;
+  if (process.env.COMPANION_KEY && key === process.env.COMPANION_KEY) {
+    return profiles.find((p) => p.id === "default") || null;
+  }
+  return null;
 }
 
 export async function getProfileByPluginKey(key) {
   if (!key) return null;
   const profiles = await loadProfiles();
-  return profiles.find((p) => p.pluginSetupKey === key) || null;
+  const found = profiles.find((p) => p.pluginSetupKey === key);
+  if (found) return found;
+  if (process.env.PLUGIN_SETUP_KEY && key === process.env.PLUGIN_SETUP_KEY) {
+    return profiles.find((p) => p.id === "default") || null;
+  }
+  return null;
 }
 
 export async function createProfile({ name, userTimezone = "" }) {

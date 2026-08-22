@@ -1042,9 +1042,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname !== "/streams" || req.method !== "GET") return sendJson(res, 404, { error: "Not found" });
 
     requireConfig();
-    const streamProfile = await getProfileByCompanionKey(suppliedKey) ||
+    const activeProfile = await getProfileByCompanionKey(suppliedKey) ||
       (process.env.COMPANION_KEY && suppliedKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
-    if (!streamProfile) return sendJson(res, 401, { error: "Unauthorized" });
+    if (!activeProfile) return sendJson(res, 401, { error: "Unauthorized" });
 
     const rawType = String(url.searchParams.get("mediaType") || "movie").toLowerCase();
     const mediaType = /tv|series|show|episode/.test(rawType) ? "tv" : "movie";
