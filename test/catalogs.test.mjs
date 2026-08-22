@@ -122,13 +122,15 @@ test("TMDb items map to Nuvio-compatible series & movie metadata", () => {
   assert.deepEqual(toMeta({ id: 123, name: "Example Show", poster_path: "/poster.jpg", first_air_date: "2026-08-16" }, "series"), {
     id: "tmdb:123", type: "series", name: "Example Show",
     poster: "https://image.tmdb.org/t/p/w500/poster.jpg",
-    background: undefined, description: undefined, releaseInfo: "2026", imdbRating: undefined
+    background: undefined, description: undefined, releaseInfo: "2026", imdbRating: undefined,
+    rating: undefined, vote_average: undefined
   });
 
   assert.deepEqual(toMeta({ id: 456, title: "Example Movie", poster_path: "/m_poster.jpg", release_date: "2026-05-10", vote_average: 8.4 }, "movie"), {
     id: "tmdb:456", type: "movie", name: "Example Movie",
     poster: "https://image.tmdb.org/t/p/w500/m_poster.jpg",
-    background: undefined, description: undefined, releaseInfo: "2026", imdbRating: 8.4
+    background: undefined, description: undefined, releaseInfo: "2026", imdbRating: 8.4,
+    rating: 8.4, vote_average: 8.4
   });
 });
 
@@ -137,8 +139,8 @@ test("loadMeta populates episode videos array for series and single meta for mov
     if (url.pathname.includes("season/1")) {
       return response({
         episodes: [
-          { episode_number: 1, name: "Pilot", air_date: "2026-01-01", season_number: 1, still_path: "/still.jpg" },
-          { episode_number: 2, name: "Second", air_date: "2026-01-08", season_number: 1 }
+          { episode_number: 1, name: "Pilot", air_date: "2026-01-01", season_number: 1, still_path: "/still.jpg", vote_average: 8.9, vote_count: 142 },
+          { episode_number: 2, name: "Second", air_date: "2026-01-08", season_number: 1, vote_average: 8.3, vote_count: 98 }
         ]
       });
     }
@@ -167,6 +169,9 @@ test("loadMeta populates episode videos array for series and single meta for mov
   assert.equal(seriesMeta.videos[0].season, 1);
   assert.equal(seriesMeta.videos[0].episode, 1);
   assert.equal(seriesMeta.videos[0].released, "2026-01-01T12:00:00.000Z");
+  assert.equal(seriesMeta.videos[0].imdbRating, 8.9);
+  assert.equal(seriesMeta.videos[0].rating, 8.9);
+  assert.equal(seriesMeta.videos[0].voteCount, 142);
 
   const movieMeta = await loadMeta(456, async () => {
     return response({
