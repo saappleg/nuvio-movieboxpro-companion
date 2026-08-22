@@ -1018,8 +1018,7 @@ self.addEventListener('fetch', (e) => {
         (process.env.PLUGIN_SETUP_KEY && repositoryKey === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null) ||
         (process.env.COMPANION_KEY && repositoryKey === process.env.COMPANION_KEY ? await getProfileById("default") : null);
       if (!repoProfile) return sendJson(res, 401, { error: "Unauthorized" });
-      const config = repoProfile.catalogsConfig || parseCatalogConfig();
-      return sendJson(res, 200, repositoryManifest(APP_VERSION, repoProfile.pluginSetupKey, Boolean(privateRepository), config));
+      return sendJson(res, 200, repositoryManifest(APP_VERSION, repoProfile.pluginSetupKey, Boolean(privateRepository)));
     }
     if ((url.pathname === "/providers/movieboxpro-local.js" || privateRepository?.resource === "providers/movieboxpro-local.js") && req.method === "GET") {
       const repositoryKey = privateRepository?.key || queryKey;
