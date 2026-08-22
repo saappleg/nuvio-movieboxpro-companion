@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0-beta.6
+
+- **Unified Universal Add-on & Plugin Manifests**: Both `/repository/...` and `/catalog/...` routes return unified manifests containing discovery catalogs and playback scrapers simultaneously, ensuring instant discovery on Android TV regardless of input method.
+- **Bi-Directional Route Interchangeability**: Requests to `/repository/:key/catalog/*`, `/repository/:key/meta/*`, `/catalog/:key/providers/*`, and trailing slash requests resolve seamlessly.
+
 ## 1.0.0-beta.5
 
 - **Android TV Add-on & Manifest Compatibility**: Added support for trailing slash tolerance on catalog endpoints, enhanced `types` (`["movie", "series", "tv"]`) and `idPrefixes` (`["tmdb:", "tt", "tmdb"]`) in `catalogManifest`, and expanded scraper `supportedTypes` (`["movie", "tv", "series"]`).
