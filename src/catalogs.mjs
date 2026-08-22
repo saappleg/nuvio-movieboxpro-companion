@@ -391,13 +391,14 @@ export function parseCatalogConfig(value = process.env.DISCOVERY_CATALOGS_CONFIG
   return ALL_AVAILABLE_CATALOGS.map((c) => ({ ...c, enabled: Boolean(c.defaultEnabled) }));
 }
 
-export function catalogManifest(version, key, config = parseCatalogConfig()) {
-  const activeCatalogs = (Array.isArray(config) ? config : parseCatalogConfig(config))
+export function catalogManifest(version, key, config) {
+  const fullConfig = parseCatalogConfig(config);
+  const activeCatalogs = fullConfig
     .filter((c) => c && c.enabled !== false)
     .map((c) => ({
-      type: c.type,
+      type: c.type || "series",
       id: c.id,
-      name: c.name,
+      name: c.name || c.id,
       extra: c.extra || [{ name: "search", isRequired: false }, { name: "skip", isRequired: false }],
       extraSupported: c.extraSupported || ["search", "skip"]
     }));
