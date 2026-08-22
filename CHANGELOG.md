@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0-beta.8
+
+- **Fix Scraper Plugin Repository Manifest Resolution**: Ensure `/repository/:key/manifest.json` returns the dedicated Nuvio scraper manifest with `scrapers: [...]` rather than the catalog manifest.
+
 ## 1.0.0-beta.7
 
 - **Fix Missing Catalog `type` and `name` in Manifest**: Resolved bug where custom saved feed configurations in `profiles.json` omitted `type` and `name` from catalog descriptors, causing Android TV's Nuvio client to fail catalog loading.

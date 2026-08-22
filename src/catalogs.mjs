@@ -482,19 +482,19 @@ export function matchCatalogRequestPath(pathname) {
   const cleanPath = String(pathname || "").split("?")[0].replace(/\/+$/, "");
 
   // 1. Logo
-  if (/\/(?:catalog|repository)\/[^/]+\/logo\.svg$/i.test(cleanPath)) {
-    const match = cleanPath.match(/\/(?:catalog|repository)\/([^/]+)\/logo\.svg/i);
+  if (/\/catalog\/[^/]+\/logo\.svg$/i.test(cleanPath)) {
+    const match = cleanPath.match(/\/catalog\/([^/]+)\/logo\.svg/i);
     return { key: decodeURIComponent(match[1]), resource: "logo.svg" };
   }
 
-  // 2. Manifest (/:prefix/:key/manifest.json or /:prefix/:key)
-  if (/\/(?:catalog|repository)\/[^/]+\/manifest\.json$/i.test(cleanPath) || /^\/(?:catalog|repository)\/[^/]+$/i.test(cleanPath)) {
-    const match = cleanPath.match(/\/(?:catalog|repository)\/([^/]+)(?:\/manifest\.json)?$/i);
+  // 2. Manifest (/catalog/:key/manifest.json or /catalog/:key)
+  if (/\/catalog\/[^/]+\/manifest\.json$/i.test(cleanPath) || /^\/catalog\/[^/]+$/i.test(cleanPath)) {
+    const match = cleanPath.match(/\/catalog\/([^/]+)(?:\/manifest\.json)?$/i);
     return { key: decodeURIComponent(match[1]), resource: "manifest.json" };
   }
 
-  // 3. Catalog: /:prefix/:key/catalog/:type/:catalogId[/:extra][.json]
-  const catMatch = cleanPath.match(/^\/(?:catalog|repository)\/([^/]+)\/(catalog\/(movie|series|tv)\/([^/]+?)(?:\/([^/]+))?(?:\.json)?)$/i);
+  // 3. Catalog: /catalog/:key/catalog/:type/:catalogId[/:extra][.json]
+  const catMatch = cleanPath.match(/^\/catalog\/([^/]+)\/(catalog\/(movie|series|tv)\/([^/]+?)(?:\/([^/]+))?(?:\.json)?)$/i);
   if (catMatch) {
     const key = decodeURIComponent(catMatch[1]);
     const resource = catMatch[2];
@@ -505,8 +505,8 @@ export function matchCatalogRequestPath(pathname) {
     return { key, resource: resource.endsWith(".json") ? resource : `${resource}.json`, mediaType, catalogId, extra };
   }
 
-  // 4. Meta: /:prefix/:key/meta/:type/:metaId[.json]
-  const metaMatch = cleanPath.match(/^\/(?:catalog|repository)\/([^/]+)\/(meta\/(movie|series|tv)\/([^/]+))$/i);
+  // 4. Meta: /catalog/:key/meta/:type/:metaId[.json]
+  const metaMatch = cleanPath.match(/^\/catalog\/([^/]+)\/(meta\/(movie|series|tv)\/([^/]+))$/i);
   if (metaMatch) {
     const key = decodeURIComponent(metaMatch[1]);
     const resource = metaMatch[2];
