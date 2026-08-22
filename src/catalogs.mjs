@@ -156,7 +156,9 @@ export function toMeta(item, defaultType = "series") {
     background: item.backdrop_path ? `${IMAGE_BASE}/w1280${item.backdrop_path}` : undefined,
     description: item.overview || undefined,
     releaseInfo: String(item.release_date || item.first_air_date || "").slice(0, 4) || undefined,
-    imdbRating: Number(item.vote_average) ? Number(item.vote_average.toFixed(1)) : undefined
+    imdbRating: Number(item.vote_average) ? Number(item.vote_average.toFixed(1)) : undefined,
+    rating: Number(item.vote_average) ? Number(item.vote_average.toFixed(1)) : undefined,
+    vote_average: Number(item.vote_average) ? Number(item.vote_average.toFixed(1)) : undefined
   };
 }
 
@@ -845,6 +847,7 @@ export async function loadMeta(rawId, fetchImpl = fetch, mediaType = "series") {
             epOverview = `[${airStatus}] ` + (epOverview || "");
           }
 
+          const epRating = Number(ep.vote_average) ? Number(ep.vote_average.toFixed(1)) : undefined;
           videos.push({
             id: videoId,
             title: ep.name || `Episode ${epNum}`,
@@ -857,7 +860,12 @@ export async function loadMeta(rawId, fetchImpl = fetch, mediaType = "series") {
             overview: epOverview,
             airStatus: airStatus || undefined,
             thumbnail: ep.still_path ? `${IMAGE_BASE}/w500${ep.still_path}` : undefined,
-            rating: Number(ep.vote_average) ? Number(ep.vote_average.toFixed(1)) : undefined
+            imdbRating: epRating,
+            rating: epRating,
+            vote_average: epRating,
+            voteAverage: epRating,
+            voteCount: Number(ep.vote_count) || undefined,
+            vote_count: Number(ep.vote_count) || undefined
           });
         }
       } else {

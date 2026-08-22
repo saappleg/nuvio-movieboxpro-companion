@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0-beta.9
+
+- **Enrich Episode Ratings Across All Standard Keys**: Populate `imdbRating`, `rating`, `vote_average`, `voteAverage`, and `voteCount` on all series episode video objects and metadata descriptors for Nuvio Android TV.
+
 ## 1.0.0-beta.8
 
 - **Fix Scraper Plugin Repository Manifest Resolution**: Ensure `/repository/:key/manifest.json` returns the dedicated Nuvio scraper manifest with `scrapers: [...]` rather than the catalog manifest.
