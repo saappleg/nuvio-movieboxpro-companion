@@ -709,7 +709,7 @@ export function setupPage() {
       q('tmdbText').textContent = s.tmdbConfigured ? 'Key Saved' : 'Key Missing';
       
       const isConfigured = s.companionKeyConfigured && s.pluginKeyConfigured;
-      const addrDisplay = s.publicUrl ? s.publicUrl.replace(/^https?:\/\//, '') : 'Ready';
+      const addrDisplay = s.publicUrl ? s.publicUrl.replace(/^https?:[/][/]/, '') : 'Ready';
       q('serviceBadge').innerHTML = '<span class="dot ' + (isConfigured ? 'good' : 'warn') + '"></span> ' + (isConfigured ? 'Online (' + addrDisplay + ')' : 'Setup Incomplete');
       q('serviceText').textContent = isConfigured ? 'Configured & Online' : 'Action Required';
 
