@@ -63,6 +63,16 @@ test("catalog configuration supports custom ordering and toggle states", () => {
     "new-series",
     "this-week"
   ]);
+  assert.ok(manifest.catalogs.every((c) => typeof c.type === "string" && Boolean(c.name)));
+
+  // Test when minimal { id, enabled } array is passed directly without pre-parsing
+  const rawSavedManifest = catalogManifest(APP_VERSION, "private-key", customConfig);
+  assert.deepEqual(rawSavedManifest.catalogs.map((c) => c.id), [
+    "recommended-movies",
+    "new-series",
+    "this-week"
+  ]);
+  assert.ok(rawSavedManifest.catalogs.every((c) => typeof c.type === "string" && typeof c.name === "string"));
 });
 
 test("parseCatalogExtra handles search and pagination parameters", () => {

@@ -1,3 +1,5 @@
+import { catalogManifest } from "./catalogs.mjs";
+
 export function privateRepositoryUrl(baseUrl, key) {
   return `${String(baseUrl).replace(/\/$/, "")}/repository/${encodeURIComponent(key)}/manifest.json`;
 }
@@ -9,7 +11,8 @@ export function matchPrivateRepositoryPath(pathname) {
   return { key: decodeURIComponent(match[1]), resource: match[2] || "manifest.json" };
 }
 
-export function repositoryManifest(version, key, pathAuthenticated = true, catalogs = []) {
+export function repositoryManifest(version, key, pathAuthenticated = true, config) {
+  const catalogs = catalogManifest(version, key, config).catalogs;
   return {
     id: "community.nuvio.companion.calendar",
     name: "MovieBoxPro Local",
@@ -18,7 +21,7 @@ export function repositoryManifest(version, key, pathAuthenticated = true, catal
     resources: ["catalog", "meta"],
     types: ["movie", "series", "tv"],
     idPrefixes: ["tmdb:", "tt", "tmdb"],
-    catalogs: Array.isArray(catalogs) ? catalogs : [],
+    catalogs,
     behaviorHints: { configurable: false, configurationRequired: false },
     scrapers: [{
       id: "movieboxpro-local",

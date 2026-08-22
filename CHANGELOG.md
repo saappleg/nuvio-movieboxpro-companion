@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0-beta.7
+
+- **Fix Missing Catalog `type` and `name` in Manifest**: Resolved bug where custom saved feed configurations in `profiles.json` omitted `type` and `name` from catalog descriptors, causing Android TV's Nuvio client to fail catalog loading.
+
 ## 1.0.0-beta.6
 
 - **Unified Universal Add-on & Plugin Manifests**: Both `/repository/...` and `/catalog/...` routes return unified manifests containing discovery catalogs and playback scrapers simultaneously, ensuring instant discovery on Android TV regardless of input method.
