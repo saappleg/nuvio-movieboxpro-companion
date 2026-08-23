@@ -80,7 +80,7 @@ docker compose -f docker-compose.ghcr.yml up -d
 docker compose -f docker-compose.ghcr.yml ps
 ```
 
-The package supports AMD64 and ARM64 Linux hosts. To pin a tested release instead of following `latest`, add `COMPANION_VERSION=0.2.1` to `.env`.
+The package supports AMD64 and ARM64 Linux hosts. To pin a tested release instead of following `latest`, add `COMPANION_VERSION=1.0.0-beta.9` to `.env`.
 
 The named Docker volume `companion-data` preserves the Chromium profile across container replacement and restarts.
 
@@ -108,15 +108,20 @@ The key is removed from the address bar after the dashboard creates an HTTP-only
 
 Verify authentication with the protected `/status` URL. Close the noVNC tab afterward; the Chromium profile remains in the Docker volume.
 
-## 5. Install the Nuvio plugin
+## 5. Install in Nuvio
 
-The companion dashboard reveals the exact protected installation URL. Copy it into Nuvio's plugin/provider repository settings. Its format is:
+The companion dashboard reveals your exact protected installation URLs:
 
-```text
-http://SERVER_TAILSCALE_IP:43110/manifest.json?key=YOUR_PLUGIN_SETUP_KEY
-```
+1. **Provider Scraper Plugin:**
+   ```text
+   http://SERVER_TAILSCALE_IP:43110/repository/YOUR_PLUGIN_SETUP_KEY/manifest.json
+   ```
+2. **Discovery & Calendar Add-on:**
+   ```text
+   http://SERVER_TAILSCALE_IP:43110/catalog/YOUR_PLUGIN_SETUP_KEY/manifest.json
+   ```
 
-Refresh plugins, restart Nuvio if necessary, and test one movie and one TV episode. Both the Pixel and Android TV must have Tailscale connected whenever Nuvio loads the provider or requests streams.
+Copy these URLs into Nuvio's plugin and add-on repository settings. Refresh plugins, restart Nuvio if necessary, and test playback. Both the mobile device and Android TV must have Tailscale connected whenever Nuvio loads the provider or requests streams.
 
 ## Maintenance
 
