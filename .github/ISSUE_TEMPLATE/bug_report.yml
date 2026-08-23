@@ -1,0 +1,76 @@
+name: Bug Report
+description: Create a report to help us fix an issue or bug
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please ensure you do **NOT** share any private keys, passwords, TMDb API keys, or MovieBoxPro session tokens in this issue.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have verified that I am running the latest version of the companion.
+          required: true
+        - label: I have verified that no sensitive credentials (keys, tokens, cookies) are included in this report.
+          required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment Type
+      description: How are you running the companion?
+      options:
+        - Proxmox VE LXC (Community Script)
+        - Docker Compose (GHCR image)
+        - Docker Compose (Built from source)
+        - Linux Systemd / Bare Metal
+        - macOS Standalone (Node.js)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Companion Version
+      description: E.g., `v1.0.0-beta.9` (found at the bottom of the Setup Dashboard or in `package.json`).
+      placeholder: v1.0.0-beta.9
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Nuvio Client & Device
+      description: What client app and device are you using? (e.g. Nuvio Android TV on Chromecast with Google TV, Nuvio Web on Safari, Nuvio Mobile on iOS/Android).
+      placeholder: Nuvio Android TV v... on Chromecast 4K
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Open Nuvio app on Android TV
+        2. Navigate to Discover / Add-on feed 'Airing Today'
+        3. Click on ...
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Companion Logs (Redacted)
+      description: Relevant logs from `nuvio-companion logs` or `docker compose logs companion`. Remember to redact any private keys or tokens.
+      render: shell
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or error details here.
