@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   chooseCandidate,
   findEpisodeSourceId,
+  findEpisodeSourceIdByTitle,
   findInitialSourceId,
+  findMovieBoxSeasonNumbers,
+  hasEpisodeSourceTitles,
   parsePlayerResponse,
   parseSearchResults,
   streamsFromPlayer
@@ -30,4 +33,25 @@ test("finds source IDs", () => {
   assert.equal(findInitialSourceId(`<a href="/index/index/player?mfid=123">`, "movie"), "123");
   const payload = { data: { episodes: [{ season: 2, episode: 3, tfid: 456 }] } };
   assert.equal(findEpisodeSourceId(payload, 2, 3), "456");
+});
+
+test("matches episode sources by title when MovieBox and TMDb season numbers differ", () => {
+  const payload = {
+    data: {
+      episodes: [
+        { season: 14, episode: 1, name: "The Impossible Stream", tfid: 1401 },
+        { season: 14, episode: 2, title: "Another Episode", tfid: 1402 }
+      ]
+    }
+  };
+  assert.equal(findEpisodeSourceIdByTitle(payload, "The Impossible Stream"), "1401");
+  assert.equal(findEpisodeSourceIdByTitle(payload, "the-impossible stream!"), "1401");
+  assert.equal(findEpisodeSourceIdByTitle(payload, "Missing Episode"), null);
+  assert.equal(hasEpisodeSourceTitles(payload), true);
+  assert.equal(hasEpisodeSourceTitles({ data: { episodes: [{ season: 1, episode: 1, tfid: 1 }] } }), false);
+});
+
+test("extracts available MovieBox season numbers from page markup", () => {
+  const html = '<a href="/tvshow/1?season=1">1</a><button data-season="14">14</button><script>season: 3</script>';
+  assert.deepEqual(findMovieBoxSeasonNumbers(html), [1, 3, 14]);
 });
