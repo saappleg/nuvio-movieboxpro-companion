@@ -8,7 +8,10 @@ import { matchPrivateRepositoryPath, privateRepositoryUrl, repositoryManifest } 
 import {
   chooseCandidate,
   findEpisodeSourceId,
+  findEpisodeSourceIdByTitle,
   findInitialSourceId,
+  findMovieBoxSeasonNumbers,
+  hasEpisodeSourceTitles,
   parsePlayerResponse,
   parseSearchResults,
   streamsFromPlayer
@@ -369,11 +372,24 @@ async function tmdbMetadata(tmdbId, mediaType) {
   if (!response.ok) throw new Error(`TMDb lookup failed (${response.status})`);
   const data = await response.json();
   return {
+    id: data.id,
     title: data.title || data.name,
     year: Number(String(data.release_date || data.first_air_date || "").slice(0, 4)) || null,
     runtime: data.runtime || (data.episode_run_time || [])[0] || null,
     mediaType: type
   };
+}
+
+async function tmdbEpisodeTitle(metadata, season, episode) {
+  const headers = process.env.TMDB_BEARER_TOKEN
+    ? { Authorization: `Bearer ${process.env.TMDB_BEARER_TOKEN}` }
+    : {};
+  const url = new URL(`https://api.themoviedb.org/3/tv/${encodeURIComponent(metadata.id)}/season/${Number(season)}`);
+  if (process.env.TMDB_API_KEY) url.searchParams.set("api_key", process.env.TMDB_API_KEY);
+  const response = await fetch(url, { headers });
+  if (!response.ok) throw new Error(`TMDb season lookup failed (${response.status})`);
+  const data = await response.json();
+  return data.episodes?.find((item) => Number(item.episode_number) === Number(episode))?.name || null;
 }
 
 async function mbpFetch(path, options = {}, profileId = "default") {
@@ -431,9 +447,53 @@ async function resolveStreams({ tmdbId, mediaType, season, episode }, profileId 
   let sourceId;
 
   if (mediaType === "tv") {
-    const episodesResponse = await mbpFetch(`/index/index/player_tv_episodes?tid=${selected.candidate.id}&season=${Number(season)}`, { accept: "application/json" }, profileId);
-    const episodeData = await episodesResponse.json();
-    sourceId = findEpisodeSourceId(episodeData, season, episode) || findInitialSourceId(detailHtml, "tv");
+    const requestedSeason = Number(season);
+    const requestedEpisode = Number(episode);
+    let tmdbTitle = null;
+    try {
+      tmdbTitle = await tmdbEpisodeTitle(metadata, requestedSeason, requestedEpisode);
+    } catch (error) {
+      // Preserve normal numbering-based playback if TMDb's per-season endpoint
+      // is temporarily unavailable.
+      console.warn(`[companion] could not verify TMDb episode title: ${error.message}`);
+    }
+    const episodeDataFor = async (movieBoxSeason) => {
+      const response = await mbpFetch(
+        `/index/index/player_tv_episodes?tid=${selected.candidate.id}&season=${movieBoxSeason}`,
+        { accept: "application/json" },
+        profileId
+      );
+      return response.json();
+    };
+
+    const requestedData = await episodeDataFor(requestedSeason);
+    const numberedSourceId = findEpisodeSourceId(requestedData, requestedSeason, requestedEpisode);
+    const movieBoxProvidesTitles = hasEpisodeSourceTitles(requestedData);
+    // Fast path for titles whose numbering is shared by TMDb and MovieBox.
+    sourceId = tmdbTitle
+      ? findEpisodeSourceIdByTitle(requestedData, tmdbTitle)
+      : findEpisodeSourceId(requestedData, requestedSeason, requestedEpisode);
+
+    if (!sourceId && tmdbTitle) {
+      const seasons = findMovieBoxSeasonNumbers(detailHtml)
+        .filter((number) => number !== requestedSeason);
+      // A few MovieBox pages do not render their season switcher in the HTML.
+      // In that case probe the conventional range without assuming that it matches TMDb.
+      const candidateSeasons = seasons.length > 1 ? seasons : Array.from({ length: 40 }, (_, index) => index + 1)
+        .filter((number) => number !== requestedSeason);
+      for (const movieBoxSeason of candidateSeasons) {
+        try {
+          const data = await episodeDataFor(movieBoxSeason);
+          sourceId = findEpisodeSourceIdByTitle(data, tmdbTitle);
+          if (sourceId) break;
+        } catch {
+          // An absent season is expected while resolving differently-numbered shows.
+        }
+      }
+    }
+    // Some older MovieBox responses omit episode titles. Only then retain the
+    // number-based behavior; otherwise never silently play a different episode.
+    if (!sourceId && (!tmdbTitle || !movieBoxProvidesTitles)) sourceId = numberedSourceId;
   } else {
     sourceId = findInitialSourceId(detailHtml, "movie");
   }

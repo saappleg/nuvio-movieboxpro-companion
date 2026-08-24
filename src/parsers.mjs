@@ -117,15 +117,38 @@ export function findInitialSourceId(html, mediaType) {
 }
 
 export function findEpisodeSourceId(payload, season, episode) {
+  return findEpisodeSource(payload, (candidate) => (
+    candidate.season === Number(season) && candidate.episode === Number(episode)
+  ));
+}
+
+function episodeTitle(value) {
+  return value.name ?? value.title ?? value.episode_name ?? value.episode_title ?? value.ep_name ?? value.en_name;
+}
+
+export function findEpisodeSourceIdByTitle(payload, title) {
+  const wanted = normalizeTitle(title);
+  if (!wanted) return null;
+  return findEpisodeSource(payload, (candidate) => normalizeTitle(candidate.title) === wanted);
+}
+
+export function hasEpisodeSourceTitles(payload) {
+  return Boolean(findEpisodeSource(payload, (candidate) => Boolean(normalizeTitle(candidate.title))));
+}
+
+function findEpisodeSource(payload, matches) {
   const seen = new Set();
   function visit(value) {
     if (!value || typeof value !== "object" || seen.has(value)) return null;
     seen.add(value);
     if (!Array.isArray(value)) {
-      const s = Number(value.season ?? value.season_num ?? value.s);
-      const e = Number(value.episode ?? value.episode_num ?? value.ep ?? value.e);
+      const candidate = {
+        season: Number(value.season ?? value.season_num ?? value.s),
+        episode: Number(value.episode ?? value.episode_num ?? value.ep ?? value.e),
+        title: episodeTitle(value)
+      };
       const id = value.tfid ?? value.fid ?? value.id;
-      if (s === Number(season) && e === Number(episode) && id != null) return String(id);
+      if (id != null && matches(candidate)) return String(id);
     }
     for (const child of Object.values(value)) {
       const found = visit(child);
@@ -134,6 +157,17 @@ export function findEpisodeSourceId(payload, season, episode) {
     return null;
   }
   return visit(payload);
+}
+
+export function findMovieBoxSeasonNumbers(html) {
+  const seasons = new Set();
+  const pattern = /(?:[?&]|\b)data-(?:season|season_num)\s*=\s*["']?(\d+)|[?&]season=(\d+)|\bseason\s*[:=]\s*["']?(\d+)/gi;
+  let match;
+  while ((match = pattern.exec(String(html || "")))) {
+    const number = Number(match[1] || match[2] || match[3]);
+    if (Number.isInteger(number) && number >= 0 && number <= 100) seasons.add(number);
+  }
+  return [...seasons].sort((a, b) => a - b);
 }
 
 function inferQuality(level) {

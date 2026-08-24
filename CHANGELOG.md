@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0-beta.10
+
+- **Cross-provider Season Resolution**: Match TV episodes by their TMDb episode title whenever MovieBox uses different season numbering, preventing an incorrect episode from being selected. Falls back to numeric matching only for legacy responses that provide no episode-title metadata.
+
 ## 1.0.0-beta.9
 
 - **Enrich Episode Ratings Across All Standard Keys**: Populate `imdbRating`, `rating`, `vote_average`, `voteAverage`, and `voteCount` on all series episode video objects and metadata descriptors for Nuvio Android TV.
