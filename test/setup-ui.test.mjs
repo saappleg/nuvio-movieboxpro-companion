@@ -28,6 +28,8 @@ test("renders the guided setup dashboard without embedded secrets", () => {
   assert.doesNotMatch(html, /COMPANION_KEY=/);
   assert.doesNotMatch(html, /PLUGIN_SETUP_KEY=/);
   assert.doesNotMatch(html, /TMDB_API_KEY=/);
+  assert.match(html, /masterFeeds/);
+  assert.match(html, /feedTitle/);
 
   const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(scriptMatch, "Setup page must include inline script tag");

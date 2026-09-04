@@ -619,6 +619,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, {
           profiles: profiles.map((p) => ({
             ...p,
+            catalogsConfig: parseCatalogConfig(p.catalogsConfig),
             pluginUrl: privateRepositoryUrl(publicUrl(), p.pluginSetupKey),
             catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(p.pluginSetupKey)}/manifest.json`
           }))
@@ -632,6 +633,7 @@ const server = http.createServer(async (req, res) => {
           ok: true,
           profile: {
             ...created,
+            catalogsConfig: parseCatalogConfig(created.catalogsConfig),
             pluginUrl: privateRepositoryUrl(publicUrl(), created.pluginSetupKey),
             catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(created.pluginSetupKey)}/manifest.json`
           }
@@ -649,6 +651,7 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, {
             profile: {
               ...profile,
+              catalogsConfig: parseCatalogConfig(profile.catalogsConfig),
               pluginUrl: privateRepositoryUrl(publicUrl(), profile.pluginSetupKey),
               catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(profile.pluginSetupKey)}/manifest.json`
             }

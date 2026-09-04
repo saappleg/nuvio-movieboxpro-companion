@@ -30,23 +30,25 @@ function update_script() {
     exit 1
   fi
 
-  if check_for_gh_tag "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion"; then
+  if check_for_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion"; then
+    trap 'systemctl start nuvio-display nuvio-window-manager nuvio-vnc nuvio-novnc nuvio-companion 2>/dev/null || true' EXIT ERR
     msg_info "Stopping Companion Services"
     systemctl stop nuvio-companion nuvio-novnc nuvio-vnc nuvio-window-manager nuvio-display
     msg_ok "Stopped Companion Services"
 
-    CLEAN_INSTALL=1 fetch_and_deploy_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion" "tarball" "${CHECK_UPDATE_RELEASE:-latest}"
+    FORCE_UPDATE=1 CLEAN_INSTALL=1 fetch_and_deploy_gh_release "nuvio-movieboxpro-companion" "saappleg/nuvio-movieboxpro-companion" "tarball" "${CHECK_UPDATE_RELEASE:-latest}"
 
     msg_info "Installing Application Dependencies"
     cd /opt/nuvio-movieboxpro-companion
     $STD npm ci --omit=dev
-    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright $STD npx playwright install --with-deps chromium
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright $STD npx playwright install chromium
     chmod 0755 scripts/nuvio-companion
     ln -sf /opt/nuvio-movieboxpro-companion/scripts/nuvio-companion /usr/local/bin/nuvio-companion
     msg_ok "Installed Application Dependencies"
 
     systemctl daemon-reload
     systemctl start nuvio-display nuvio-window-manager nuvio-vnc nuvio-novnc nuvio-companion
+    trap - EXIT ERR
     msg_ok "Updated successfully!"
   fi
   exit
