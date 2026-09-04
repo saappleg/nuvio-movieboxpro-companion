@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.13
+
+- **AIOStreams / Stremio Adapter**: Added a key-protected standard Stremio stream manifest and stream route for AIOStreams and compatible clients, with IntroDB enrichment and MovieBoxPro header-aware playback proxying.
+- **Persistent Multi-Profile Storage**: Docker profile metadata and secondary browser sessions now remain on the `/data` volume, and each profile's cloud endpoint and install URLs are preserved correctly.
+- **Release Image Publishing**: Main and version tags publish the multi-architecture GHCR image so Docker-based Proxmox deployments can pull the current release.
+
 ## 1.0.0-beta.12
 
 - **Cross-Provider Season Resolution & Title Matching**: Automatic fallback to Cinemeta/TVDb episode titles when TMDb per-season lookups fail or season counts diverge (such as Futurama's 14 TVDb seasons vs 11 MovieBox seasons). Added flexible title matching tolerant to episode number prefixes and punctuation, and accept explicit `episodeTitle` query parameters from Nuvio and AIOStreams.
@@ -12,7 +18,7 @@
 - **Multi-Profile Isolation & Sync**: Support per-profile recommendation seeds, custom catalog feeds, and dedicated Nuvio Cloud library syncing across all secondary and default profiles.
 - **Automatic Multi-Profile Background Sync**: Recurring 6-hour background sync now checks and syncs all connected Nuvio Cloud profiles with automatic TMDb cache invalidation.
 - **Prefix-Tolerant ID Normalization**: Clean handling of `imdb:` and `tmdb:` URI prefixes across catalog searches, metadata queries, and IntroDB episode segment resolution.
-- **AIOStreams Integration**: Restored local AIOStreams build, dataset mapping synchronization, and background daemon execution.
+- **AIOStreams Compatibility Boundary**: AIOStreams remains an independent checkout; the companion exposes a key-protected standard Stremio stream adapter without owning AIOStreams' build, data, or daemon lifecycle.
 - **Scoped Test Suite**: Configured root test runner to execute companion tests cleanly without recursion collisions.
 
 ## 1.0.0-beta.10
@@ -33,7 +39,7 @@
 
 ## 1.0.0-beta.6
 
-- **Unified Universal Add-on & Plugin Manifests**: Both `/repository/...` and `/catalog/...` routes return unified manifests containing discovery catalogs and playback scrapers simultaneously, ensuring instant discovery on Android TV regardless of input method.
+- **Separate Universal Add-on & Plugin Manifests**: `/repository/...` serves playback scrapers and `/catalog/...` serves discovery feeds, allowing clients to install the appropriate resource without relying on undocumented manifest merging.
 - **Bi-Directional Route Interchangeability**: Requests to `/repository/:key/catalog/*`, `/repository/:key/meta/*`, `/catalog/:key/providers/*`, and trailing slash requests resolve seamlessly.
 
 ## 1.0.0-beta.5

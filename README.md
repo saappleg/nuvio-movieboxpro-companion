@@ -151,7 +151,17 @@ http://<HOST_IP>:43110/catalog/<PLUGIN_KEY>/manifest.json
 ```
 
 > [!TIP]
-> Both endpoints support universal unified manifests. If your client supports single-manifest installation, adding either manifest URL enables both streaming scrapers and discovery feeds automatically!
+> Install both URLs when you want both features: the repository URL provides MovieBoxPro playback, while the catalog URL provides discovery and calendar feeds.
+
+### 3. AIOStreams / Stremio Stream Adapter
+
+The companion also exposes a standard, key-protected Stremio stream adapter for AIOStreams and other Stremio clients:
+
+```text
+http://<HOST_IP>:43110/stremio/<PLUGIN_KEY>/manifest.json
+```
+
+Add that URL as an external Stremio add-on in AIOStreams. The companion and AIOStreams are independent repositories and must be built or started from their own checkout; the companion does not manage AIOStreams' process or data directory.
 
 ---
 
@@ -171,7 +181,9 @@ http://<HOST_IP>:43110/catalog/<PLUGIN_KEY>/manifest.json
 | `NOVNC_PASSWORD` | Password for Docker noVNC browser desktop. | `""` |
 | `MOVIEBOXPRO_PROFILE` | Directory path for persistent Chromium profile. | `work/movieboxpro-profile` |
 | `COMPANION_CONFIG` | Path to persistent `.env` configuration file. | `.env` |
+| `COMPANION_PROFILES_FILE` | Path to persistent multi-profile metadata. | `work/profiles.json` |
 | `STREAM_TIMEOUT_MS` | Maximum duration before stream scraping timeout. | `45000` |
+| `STREAM_PROXY_ENABLED` | Return companion proxy URLs so clients do not need MovieBoxPro headers. | `true` |
 
 ---
 
@@ -183,11 +195,13 @@ http://<HOST_IP>:43110/catalog/<PLUGIN_KEY>/manifest.json
 | `GET /catalog/:key/manifest.json` | Universal Discovery & Calendar Add-on Manifest. |
 | `GET /catalog/:key/catalog/:type/:id.json` | Discovery catalog feed (Airing Today, New Series, Recommendations, etc.). |
 | `GET /catalog/:key/meta/:type/:id.json` | Enriched movie / TV series metadata with ratings, cast, and episode lists. |
+| `GET /stremio/:key/manifest.json` | Standard Stremio/AIOStreams stream manifest. |
+| `GET /stremio/:key/stream/:type/:id.json` | Standard Stremio stream response for a movie or series episode. |
 | `GET /stream/proxy` | Video reverse proxy with HTTP 206 Partial Content Range seeking. |
-| `GET /intro/:imdbId/:season/:episode` | IntroDB crowd-sourced skip intro/outro segment timestamps. |
+| `GET /intro?tmdbId=:id&season=:season&episode=:episode` | IntroDB crowd-sourced skip intro/outro segment timestamps. The legacy `/intro/:imdbId/:season/:episode` form is also supported. |
 | `GET /setup?key=:key` | Interactive web dashboard for configuration and profile management. |
 | `GET /health` | Service health status check. |
-| `GET /api/setup/status` | Comprehensive companion health, session status, and metrics. |
+| `GET /api/setup/health` (or `/api/setup/status`) | Comprehensive companion health and session status. |
 
 ---
 
@@ -207,7 +221,7 @@ Run the comprehensive unit test suite:
 npm test
 ```
 
-All 40+ unit tests validate catalog ordering, TMDb transformations, episode mapping, IntroDB integration, timezone offsets, stream proxying, Nuvio Cloud sync, and profile isolation.
+The unit tests validate catalog ordering, TMDb transformations, episode mapping, IntroDB integration, timezone offsets, Nuvio Cloud sync, profile isolation, and generated provider/manifest contracts.
 
 ---
 
