@@ -8,7 +8,7 @@
     "init:lan": "node scripts/init.mjs --lan",
     "setup-url": "node scripts/setup-url.mjs",
     "start": "node src/server.mjs",
-    "test": "node --test 'test/**/*.test.mjs'"
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=20"
