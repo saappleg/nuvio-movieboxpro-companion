@@ -3,7 +3,7 @@ const CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
 
 export async function resolveImdbIdForShow(tmdbId, tmdbApiKey, fetchImpl = fetch) {
   if (!tmdbId) return null;
-  const rawId = String(tmdbId).trim();
+  const rawId = String(tmdbId).trim().replace(/^(?:tmdb|imdb):/i, "").trim();
   if (/^tt\d+$/i.test(rawId)) return rawId.toLowerCase();
   if (!/^\d+$/.test(rawId)) return null;
 
@@ -27,7 +27,7 @@ export async function resolveImdbIdForShow(tmdbId, tmdbApiKey, fetchImpl = fetch
 
 export async function fetchIntroSegments({ imdbId, season, episode }, fetchImpl = fetch) {
   if (!imdbId || !season || !episode) return null;
-  const cleanImdb = String(imdbId).toLowerCase().trim();
+  const cleanImdb = String(imdbId).toLowerCase().trim().replace(/^(?:imdb|tmdb):/i, "").trim();
   const sNum = Number(season);
   const epNum = Number(episode);
   if (!/^tt\d+$/i.test(cleanImdb) || isNaN(sNum) || isNaN(epNum)) return null;

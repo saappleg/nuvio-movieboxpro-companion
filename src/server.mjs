@@ -26,7 +26,8 @@ import {
   parseCatalogConfig,
   resolveSeedShows,
   resolveSeedMovies,
-  getCacheStats
+  getCacheStats,
+  clearTmdbCache
 } from "./catalogs.mjs";
 import {
   getProfiles,
@@ -303,25 +304,46 @@ export async function checkSessionHealth(profileId = "default") {
 }
 
 export async function performAutoCloudSync() {
-  if (!process.env.NUVIO_CLOUD_TOKEN) return null;
-  try {
-    const profileId = process.env.NUVIO_CLOUD_PROFILE_ID || 1;
-    const syncResult = await syncNuvioCloudLibrary({
-      accessToken: process.env.NUVIO_CLOUD_TOKEN,
-      profileId,
-      cloudUrl: process.env.NUVIO_CLOUD_URL
-    });
-    await saveEnvValues({
-      NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
-      RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
-      MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
-    });
-    console.log(`[AutoSync] Background synced ${syncResult.itemCount} items from Nuvio Cloud at ${syncResult.syncedAt}`);
-    return syncResult;
-  } catch (err) {
-    console.warn(`[AutoSync] Background sync error: ${err.message}`);
-    return null;
+  const allProfiles = await getProfiles();
+  let defaultResult = null;
+
+  for (const prof of allProfiles) {
+    const token = prof.nuvioCloud?.token || (prof.id === "default" ? process.env.NUVIO_CLOUD_TOKEN : "");
+    if (!token) continue;
+    try {
+      const syncProfileId = prof.nuvioCloud?.profileId || (prof.id === "default" ? process.env.NUVIO_CLOUD_PROFILE_ID : 1) || 1;
+      const syncResult = await syncNuvioCloudLibrary({
+        accessToken: token,
+        profileId: syncProfileId,
+        cloudUrl: process.env.NUVIO_CLOUD_URL
+      });
+
+      if (prof.id === "default") {
+        defaultResult = syncResult;
+        await saveEnvValues({
+          NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
+          RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
+          MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
+        });
+      }
+
+      await updateProfile(prof.id, {
+        recommendationSeeds: syncResult.seriesSeeds,
+        movieRecommendationSeeds: syncResult.movieSeeds,
+        nuvioCloud: {
+          ...(prof.nuvioCloud || {}),
+          connected: true,
+          lastSync: syncResult.syncedAt
+        }
+      });
+      console.log(`[AutoSync] Background synced ${syncResult.itemCount} items for profile "${prof.name}" at ${syncResult.syncedAt}`);
+    } catch (err) {
+      console.warn(`[AutoSync] Background sync error for profile "${prof.name}": ${err.message}`);
+    }
   }
+
+  clearTmdbCache();
+  return defaultResult;
 }
 
 export function startBackgroundJobs() {
@@ -354,9 +376,9 @@ async function tmdbMetadata(tmdbId, mediaType) {
   const headers = process.env.TMDB_BEARER_TOKEN
     ? { Authorization: `Bearer ${process.env.TMDB_BEARER_TOKEN}` }
     : {};
-  let resolvedId = tmdbId;
-  if (/^tt\d+$/i.test(tmdbId)) {
-    const findUrl = new URL(`https://api.themoviedb.org/3/find/${encodeURIComponent(tmdbId)}`);
+  let resolvedId = String(tmdbId || "").trim().replace(/^(?:tmdb|imdb):/i, "");
+  if (/^tt\d+$/i.test(resolvedId)) {
+    const findUrl = new URL(`https://api.themoviedb.org/3/find/${encodeURIComponent(resolvedId)}`);
     findUrl.searchParams.set("external_source", "imdb_id");
     if (process.env.TMDB_API_KEY) findUrl.searchParams.set("api_key", process.env.TMDB_API_KEY);
     const findResponse = await fetch(findUrl, { headers });
@@ -785,34 +807,53 @@ const server = http.createServer(async (req, res) => {
       if (url.pathname === "/api/setup/nuvio-cloud/login" && req.method === "POST") {
         requireConfig();
         const body = await readJsonBody(req);
-        const { email, password, cloudUrl } = body;
+        const { email, password, cloudUrl, profileId: companionProfileId } = body;
         if (!email || !password) return sendJson(res, 400, { error: "Email and password are required" });
 
         const auth = await loginNuvioCloud(email, password, cloudUrl);
         const profiles = await fetchNuvioProfiles(auth.accessToken, cloudUrl);
-        const activeProfile = profiles[0] || { id: 1, name: "Default Profile" };
+        const activeCloudProfile = profiles[0] || { id: 1, name: "Default Profile" };
 
         const syncResult = await syncNuvioCloudLibrary({
           accessToken: auth.accessToken,
-          profileId: activeProfile.id,
+          profileId: activeCloudProfile.id,
           cloudUrl
         });
 
-        await saveEnvValues({
-          NUVIO_CLOUD_EMAIL: email,
-          NUVIO_CLOUD_TOKEN: auth.accessToken,
-          NUVIO_CLOUD_PROFILE_ID: String(activeProfile.id),
-          NUVIO_CLOUD_PROFILE_NAME: activeProfile.name,
-          NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
-          RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
-          MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
+        const targetCompanionId = companionProfileId ? String(companionProfileId).toLowerCase().trim() : "default";
+
+        if (targetCompanionId === "default") {
+          await saveEnvValues({
+            NUVIO_CLOUD_EMAIL: email,
+            NUVIO_CLOUD_TOKEN: auth.accessToken,
+            NUVIO_CLOUD_PROFILE_ID: String(activeCloudProfile.id),
+            NUVIO_CLOUD_PROFILE_NAME: activeCloudProfile.name,
+            NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
+            RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
+            MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
+          });
+        }
+
+        await updateProfile(targetCompanionId, {
+          recommendationSeeds: syncResult.seriesSeeds,
+          movieRecommendationSeeds: syncResult.movieSeeds,
+          nuvioCloud: {
+            connected: true,
+            email,
+            token: auth.accessToken,
+            profileId: String(activeCloudProfile.id),
+            profileName: activeCloudProfile.name,
+            lastSync: syncResult.syncedAt
+          }
         });
+
+        clearTmdbCache();
 
         return sendJson(res, 200, {
           ok: true,
           user: auth.user,
           profiles,
-          activeProfile,
+          activeProfile: activeCloudProfile,
           syncSummary: syncResult
         });
       }
@@ -820,52 +861,104 @@ const server = http.createServer(async (req, res) => {
       // Nuvio Cloud Sync Trigger
       if (url.pathname === "/api/setup/nuvio-cloud/sync" && req.method === "POST") {
         requireConfig();
-        if (!process.env.NUVIO_CLOUD_TOKEN) {
-          return sendJson(res, 400, { error: "Nuvio Cloud is not connected" });
+        const body = await readJsonBody(req).catch(() => ({}));
+        const targetCompanionId = body.profileId ? String(body.profileId).toLowerCase().trim() : "default";
+        const targetProfile = await getProfileById(targetCompanionId);
+
+        const token = targetProfile?.nuvioCloud?.token || (targetCompanionId === "default" ? process.env.NUVIO_CLOUD_TOKEN : "");
+        if (!token) {
+          return sendJson(res, 400, { error: "Nuvio Cloud is not connected for this profile" });
         }
 
-        const profileId = process.env.NUVIO_CLOUD_PROFILE_ID || 1;
+        const cloudProfileId = targetProfile?.nuvioCloud?.profileId || (targetCompanionId === "default" ? process.env.NUVIO_CLOUD_PROFILE_ID : 1) || 1;
         const syncResult = await syncNuvioCloudLibrary({
-          accessToken: process.env.NUVIO_CLOUD_TOKEN,
-          profileId,
+          accessToken: token,
+          profileId: cloudProfileId,
           cloudUrl: process.env.NUVIO_CLOUD_URL
         });
 
-        await saveEnvValues({
-          NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
-          RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
-          MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
+        if (targetCompanionId === "default") {
+          await saveEnvValues({
+            NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
+            RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
+            MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
+          });
+        }
+
+        await updateProfile(targetCompanionId, {
+          recommendationSeeds: syncResult.seriesSeeds,
+          movieRecommendationSeeds: syncResult.movieSeeds,
+          nuvioCloud: {
+            ...(targetProfile?.nuvioCloud || {}),
+            connected: true,
+            lastSync: syncResult.syncedAt
+          }
         });
+
+        clearTmdbCache();
 
         return sendJson(res, 200, { ok: true, syncSummary: syncResult });
       }
 
       // Nuvio Cloud Disconnect
       if (url.pathname === "/api/setup/nuvio-cloud/disconnect" && req.method === "POST") {
-        await saveEnvValues({
-          NUVIO_CLOUD_EMAIL: "",
-          NUVIO_CLOUD_TOKEN: "",
-          NUVIO_CLOUD_PROFILE_ID: "",
-          NUVIO_CLOUD_PROFILE_NAME: "",
-          NUVIO_CLOUD_LAST_SYNC: ""
+        const body = await readJsonBody(req).catch(() => ({}));
+        const targetCompanionId = body.profileId ? String(body.profileId).toLowerCase().trim() : "default";
+
+        if (targetCompanionId === "default") {
+          await saveEnvValues({
+            NUVIO_CLOUD_EMAIL: "",
+            NUVIO_CLOUD_TOKEN: "",
+            NUVIO_CLOUD_PROFILE_ID: "",
+            NUVIO_CLOUD_PROFILE_NAME: "",
+            NUVIO_CLOUD_LAST_SYNC: ""
+          });
+        }
+
+        await updateProfile(targetCompanionId, {
+          nuvioCloud: {
+            connected: false,
+            email: "",
+            token: "",
+            profileId: "1",
+            profileName: "Default Profile",
+            lastSync: null
+          }
         });
+
         return sendJson(res, 200, { ok: true });
       }
 
       // Manual Seeds
       if (url.pathname === "/api/setup/recommendations" && req.method === "POST") {
         requireConfig();
-        const seeds = await resolveSeedShows((await readJsonBody(req)).shows);
-        if (!seeds.length) return sendJson(res, 400, { error: "No matching TV shows were found" });
-        await saveEnvValues({ RECOMMENDATION_SEEDS: JSON.stringify(seeds) });
+        const body = await readJsonBody(req);
+        const targetCompanionId = body.profileId ? String(body.profileId).toLowerCase().trim() : "default";
+        const seeds = body.shows ? await resolveSeedShows(body.shows) : [];
+        if (body.shows && !seeds.length) return sendJson(res, 400, { error: "No matching TV shows were found" });
+
+        if (targetCompanionId === "default") {
+          await saveEnvValues({ RECOMMENDATION_SEEDS: JSON.stringify(seeds) });
+        }
+        await updateProfile(targetCompanionId, { recommendationSeeds: seeds });
+        clearTmdbCache();
+
         return sendJson(res, 200, { ok: true, seeds });
       }
 
       if (url.pathname === "/api/setup/recommendations/movies" && req.method === "POST") {
         requireConfig();
-        const seeds = await resolveSeedMovies((await readJsonBody(req)).movies);
-        if (!seeds.length) return sendJson(res, 400, { error: "No matching movies were found" });
-        await saveEnvValues({ MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(seeds) });
+        const body = await readJsonBody(req);
+        const targetCompanionId = body.profileId ? String(body.profileId).toLowerCase().trim() : "default";
+        const seeds = body.movies ? await resolveSeedMovies(body.movies) : [];
+        if (body.movies && !seeds.length) return sendJson(res, 400, { error: "No matching movies were found" });
+
+        if (targetCompanionId === "default") {
+          await saveEnvValues({ MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(seeds) });
+        }
+        await updateProfile(targetCompanionId, { movieRecommendationSeeds: seeds });
+        clearTmdbCache();
+
         return sendJson(res, 200, { ok: true, seeds });
       }
 
@@ -873,17 +966,32 @@ const server = http.createServer(async (req, res) => {
       if (url.pathname === "/api/setup/catalogs-config" && req.method === "POST") {
         requireConfig();
         const body = await readJsonBody(req);
+        const targetCompanionId = body.profileId ? String(body.profileId).toLowerCase().trim() : "default";
         const catalogs = Array.isArray(body.catalogs) ? body.catalogs : [];
+
+        let savedConfig;
         if (!catalogs.length) {
-          await saveEnvValues({ DISCOVERY_CATALOGS_CONFIG: "" });
-          return sendJson(res, 200, { ok: true, catalogs: parseCatalogConfig("") });
+          if (targetCompanionId === "default") {
+            await saveEnvValues({ DISCOVERY_CATALOGS_CONFIG: "" });
+          }
+          await updateProfile(targetCompanionId, { catalogsConfig: null });
+          savedConfig = parseCatalogConfig("");
+        } else {
+          const clean = catalogs.map((c) => ({
+            id: String(c.id || "").trim(),
+            enabled: Boolean(c.enabled),
+            ...(c.isCustom ? { type: c.type, name: c.name, description: c.description, filters: c.filters, isCustom: true } : {})
+          })).filter((c) => c.id);
+
+          if (targetCompanionId === "default") {
+            await saveEnvValues({ DISCOVERY_CATALOGS_CONFIG: JSON.stringify(clean) });
+          }
+          await updateProfile(targetCompanionId, { catalogsConfig: clean });
+          savedConfig = parseCatalogConfig(clean);
         }
-        const clean = catalogs.map((c) => ({
-          id: String(c.id || "").trim(),
-          enabled: Boolean(c.enabled)
-        })).filter((c) => c.id);
-        await saveEnvValues({ DISCOVERY_CATALOGS_CONFIG: JSON.stringify(clean) });
-        return sendJson(res, 200, { ok: true, catalogs: parseCatalogConfig(clean) });
+
+        clearTmdbCache();
+        return sendJson(res, 200, { ok: true, catalogs: savedConfig });
       }
 
       if (url.pathname === "/api/setup/config" && req.method === "POST") {
@@ -915,6 +1023,7 @@ const server = http.createServer(async (req, res) => {
         }
         if (!Object.keys(updates).length) return sendJson(res, 400, { error: "No configuration changes supplied" });
         await saveEnvValues(updates);
+        clearTmdbCache();
         return sendJson(res, 200, {
           ok: true,
           publicUrl: publicUrl(),
@@ -950,7 +1059,7 @@ const server = http.createServer(async (req, res) => {
           ? (activeProfile.movieRecommendationSeeds?.length ? activeProfile.movieRecommendationSeeds : parseMovieSeeds())
           : (activeProfile.recommendationSeeds?.length ? activeProfile.recommendationSeeds : parseSeeds());
         const extraParam = catalogRequest.extra || url.search.replace(/^\?/, "");
-        return sendJson(res, 200, { metas: await loadCatalog(catalogRequest.catalogId, seeds, fetch, new Date(), catalogRequest.mediaType, extraParam) });
+        return sendJson(res, 200, { metas: await loadCatalog(catalogRequest.catalogId, seeds, fetch, new Date(), catalogRequest.mediaType, extraParam, activeProfile.catalogsConfig) });
       }
       if (catalogRequest.metaId) {
         return sendJson(res, 200, { meta: await loadMeta(catalogRequest.metaId, fetch, catalogRequest.mediaType) });

@@ -103,3 +103,19 @@ test("backup and restore profiles data", async () => {
   // Restore original
   await saveProfiles(currentProfiles);
 });
+
+test("loadProfiles synchronizes default profile with updated environment variables", async () => {
+  const originalSeeds = process.env.RECOMMENDATION_SEEDS;
+  process.env.RECOMMENDATION_SEEDS = JSON.stringify([{ id: 82856, name: "The Mandalorian" }]);
+
+  try {
+    const profiles = await loadProfiles();
+    const defaultProf = profiles.find((p) => p.id === "default");
+    assert.ok(defaultProf);
+    assert.equal(defaultProf.recommendationSeeds.length, 1);
+    assert.equal(defaultProf.recommendationSeeds[0].name, "The Mandalorian");
+  } finally {
+    if (originalSeeds !== undefined) process.env.RECOMMENDATION_SEEDS = originalSeeds;
+    else delete process.env.RECOMMENDATION_SEEDS;
+  }
+});
