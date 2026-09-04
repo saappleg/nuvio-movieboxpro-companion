@@ -126,10 +126,34 @@ function episodeTitle(value) {
   return value.name ?? value.title ?? value.episode_name ?? value.episode_title ?? value.ep_name ?? value.en_name;
 }
 
+export function stripEpisodePrefix(title) {
+  return String(title || "")
+    .replace(/^(?:(?:s\d+)?e\d+|ep(?:isode)?\s*\d+|\d+)\s*[:.\-–]\s*/i, "")
+    .trim();
+}
+
+export function matchesEpisodeTitle(candidateTitle, targetTitle) {
+  const normCand = normalizeTitle(candidateTitle);
+  const normTarget = normalizeTitle(targetTitle);
+  if (!normCand || !normTarget) return false;
+  if (normCand === normTarget) return true;
+
+  const strippedCand = normalizeTitle(stripEpisodePrefix(candidateTitle));
+  const strippedTarget = normalizeTitle(stripEpisodePrefix(targetTitle));
+  if (strippedCand && strippedTarget && strippedCand === strippedTarget) return true;
+  if (strippedCand && normTarget && strippedCand === normTarget) return true;
+  if (normCand && strippedTarget && normCand === strippedTarget) return true;
+
+  // Substring matching for longer unique titles (>= 5 characters)
+  if (strippedCand.length >= 5 && strippedTarget.length >= 5) {
+    if (strippedCand.includes(strippedTarget) || strippedTarget.includes(strippedCand)) return true;
+  }
+  return false;
+}
+
 export function findEpisodeSourceIdByTitle(payload, title) {
-  const wanted = normalizeTitle(title);
-  if (!wanted) return null;
-  return findEpisodeSource(payload, (candidate) => normalizeTitle(candidate.title) === wanted);
+  if (!title) return null;
+  return findEpisodeSource(payload, (candidate) => matchesEpisodeTitle(candidate.title, title));
 }
 
 export function hasEpisodeSourceTitles(payload) {

@@ -569,6 +569,7 @@ export function setupPage() {
   let pluginValue = '';
   let catalogValue = '';
   let feedsData = [];
+  let masterFeeds = [];
   let detectedTz = 'UTC';
 
   function renderFeeds() {
@@ -581,12 +582,16 @@ export function setupPage() {
       item.draggable = true;
       item.dataset.index = idx;
       const isCustom = Boolean(feed.isCustom || String(feed.id).startsWith('custom-'));
+      const master = masterFeeds.find(m => m.id === feed.id);
+      const feedType = (feed.type || master?.type) === 'movie' ? 'MOV' : 'TV';
+      const feedTitle = feed.name || master?.name || feed.id || 'Custom Feed';
+      const feedDesc = feed.description || master?.description || '';
       item.innerHTML = \`
         <span class="feed-drag" title="Drag to reorder">⋮⋮</span>
-        <span class="feed-badge">\${feed.type === 'movie' ? 'MOV' : 'TV'}</span>
+        <span class="feed-badge">\${feedType}</span>
         <div class="feed-info">
-          <div class="feed-title">\${feed.name} \${isCustom ? '<span class="badge" style="font-size:10px;padding:2px 6px;margin-left:4px;color:var(--accent)">Custom</span>' : ''}</div>
-          <div class="feed-desc">\${feed.description || ''}</div>
+          <div class="feed-title">\${feedTitle} \${isCustom ? '<span class="badge" style="font-size:10px;padding:2px 6px;margin-left:4px;color:var(--accent)">Custom</span>' : ''}</div>
+          <div class="feed-desc">\${feedDesc}</div>
         </div>
         <div class="feed-actions">
           <button type="button" class="feed-btn up-btn" title="Move Up" \${idx === 0 ? 'disabled' : ''}>▲</button>
@@ -732,6 +737,7 @@ export function setupPage() {
 
       // Feeds Customizer
       if (Array.isArray(s.catalogsConfig)) {
+        masterFeeds = s.catalogsConfig;
         feedsData = s.catalogsConfig;
         renderFeeds();
       }
@@ -923,7 +929,7 @@ export function setupPage() {
         method: 'POST',
         body: JSON.stringify({ catalogs: [], profileId: currentProfileId })
       });
-      feedsData = d.catalogs;
+      feedsData = d.catalogs || (masterFeeds.length ? JSON.parse(JSON.stringify(masterFeeds)) : []);
       renderFeeds();
       msg('feedsMessage', 'Reset to default order and active feeds.', 'ok');
     } catch (e) {
@@ -1125,7 +1131,19 @@ export function setupPage() {
 
     // Populate feeds layout for active profile
     if (Array.isArray(p.catalogsConfig) && p.catalogsConfig.length) {
-      feedsData = p.catalogsConfig;
+      feedsData = p.catalogsConfig.map(f => {
+        const master = masterFeeds.find(m => m.id === f.id);
+        return {
+          ...(master || {}),
+          ...f,
+          name: f.name || master?.name || f.id,
+          type: f.type || master?.type || 'series',
+          description: f.description || master?.description || ''
+        };
+      });
+      renderFeeds();
+    } else if (masterFeeds.length) {
+      feedsData = JSON.parse(JSON.stringify(masterFeeds));
       renderFeeds();
     }
 

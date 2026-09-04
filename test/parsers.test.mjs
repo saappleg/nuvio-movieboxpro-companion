@@ -9,6 +9,8 @@ import {
   hasEpisodeSourceTitles,
   parsePlayerResponse,
   parseSearchResults,
+  matchesEpisodeTitle,
+  stripEpisodePrefix,
   streamsFromPlayer
 } from "../src/parsers.mjs";
 
@@ -39,16 +41,41 @@ test("matches episode sources by title when MovieBox and TMDb season numbers dif
   const payload = {
     data: {
       episodes: [
-        { season: 14, episode: 1, name: "The Impossible Stream", tfid: 1401 },
-        { season: 14, episode: 2, title: "Another Episode", tfid: 1402 }
+        { season: 11, episode: 1, name: "1. The Impossible Stream", tfid: 1101 },
+        { season: 11, episode: 2, title: "Children of a Lesser Bog", tfid: 1102 },
+        { season: 11, episode: 10, title: "All the Way Down", tfid: 1110 },
+        { season: 12, episode: 1, title: "The One Amigo", tfid: 1201 }
       ]
     }
   };
-  assert.equal(findEpisodeSourceIdByTitle(payload, "The Impossible Stream"), "1401");
-  assert.equal(findEpisodeSourceIdByTitle(payload, "the-impossible stream!"), "1401");
+  // Matches raw title
+  assert.equal(findEpisodeSourceIdByTitle(payload, "The Impossible Stream"), "1101");
+  // Matches normalized punctuation
+  assert.equal(findEpisodeSourceIdByTitle(payload, "the-impossible stream!"), "1101");
+  // Matches when candidate has numbered prefix
+  assert.equal(findEpisodeSourceIdByTitle(payload, "Children of a Lesser Bog"), "1102");
+  assert.equal(findEpisodeSourceIdByTitle(payload, "Ep 2 - Children of a Lesser Bog"), "1102");
+  // Substring tolerance
+  assert.equal(findEpisodeSourceIdByTitle(payload, "All the Way Down"), "1110");
   assert.equal(findEpisodeSourceIdByTitle(payload, "Missing Episode"), null);
   assert.equal(hasEpisodeSourceTitles(payload), true);
   assert.equal(hasEpisodeSourceTitles({ data: { episodes: [{ season: 1, episode: 1, tfid: 1 }] } }), false);
+});
+
+test("stripEpisodePrefix removes leading episode numbers and markers", () => {
+  assert.equal(stripEpisodePrefix("1. The Impossible Stream"), "The Impossible Stream");
+  assert.equal(stripEpisodePrefix("Ep 5: The Bots and the Bees"), "The Bots and the Bees");
+  assert.equal(stripEpisodePrefix("S11E01 - Rebirth"), "Rebirth");
+  assert.equal(stripEpisodePrefix("E10 – Near-Death Wish"), "Near-Death Wish");
+  assert.equal(stripEpisodePrefix("Neutopia"), "Neutopia");
+});
+
+test("matchesEpisodeTitle matches cross-provider titles with variations", () => {
+  assert.equal(matchesEpisodeTitle("1. The Impossible Stream", "The Impossible Stream"), true);
+  assert.equal(matchesEpisodeTitle("The Impossible Stream", "1. The Impossible Stream"), true);
+  assert.equal(matchesEpisodeTitle("Ep 1: The One Amigo", "The One Amigo"), true);
+  assert.equal(matchesEpisodeTitle("Children of a Lesser Bog", "Children of a Lesser Bog"), true);
+  assert.equal(matchesEpisodeTitle("Completely Different", "Something Else"), false);
 });
 
 test("extracts available MovieBox season numbers from page markup", () => {

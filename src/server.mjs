@@ -454,7 +454,53 @@ async function mbpFetch(path, options = {}, profileId = "default") {
   };
 }
 
-async function resolveStreams({ tmdbId, mediaType, season, episode }, profileId = "default") {
+async function cinemetaEpisodeTitle(imdbId, season, episode, fetchImpl = fetch) {
+  if (!imdbId) return null;
+  try {
+    const url = `https://v3-cinemeta.strem.io/meta/series/${encodeURIComponent(imdbId)}.json`;
+    const response = await fetchImpl(url, { headers: { Accept: "application/json" } });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const videos = data.meta?.videos || [];
+    const video = videos.find((v) => Number(v.season) === Number(season) && Number(v.episode) === Number(episode));
+    return video?.title || video?.name || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveEpisodeTitle(metadata, season, episode, hintTitle = null, fetchImpl = fetch) {
+  if (hintTitle && String(hintTitle).trim()) return String(hintTitle).trim();
+
+  // 1. Try TMDb season lookup
+  try {
+    const title = await tmdbEpisodeTitle(metadata, season, episode);
+    if (title) return title;
+  } catch (err) {
+    console.warn(`[companion] TMDb episode title lookup failed for S${season}E${episode}: ${err.message}`);
+  }
+
+  // 2. Fallback to Cinemeta (handles TVDb 14-season numbering for shows like Futurama)
+  try {
+    let imdbId = metadata.imdbId || (metadata.id && String(metadata.id).startsWith("tt") ? metadata.id : null);
+    if (!imdbId && metadata.id) {
+      imdbId = await resolveImdbIdForShow(metadata.id, process.env.TMDB_API_KEY, fetchImpl);
+    }
+    if (imdbId) {
+      const title = await cinemetaEpisodeTitle(imdbId, season, episode, fetchImpl);
+      if (title) {
+        console.log(`[companion] resolved episode title from Cinemeta/TVDb for S${season}E${episode}: "${title}"`);
+        return title;
+      }
+    }
+  } catch (err) {
+    console.warn(`[companion] Cinemeta episode title fallback failed for S${season}E${episode}: ${err.message}`);
+  }
+
+  return null;
+}
+
+async function resolveStreams({ tmdbId, mediaType, season, episode, episodeTitle }, profileId = "default") {
   const metadata = await tmdbMetadata(tmdbId, mediaType);
   const search = await mbpFetch(`/index/search?word=${encodeURIComponent(metadata.title)}&type=${mediaType === "tv" ? "tv" : "movie"}`, {}, profileId);
   const candidates = parseSearchResults(await search.text());
@@ -471,14 +517,7 @@ async function resolveStreams({ tmdbId, mediaType, season, episode }, profileId 
   if (mediaType === "tv") {
     const requestedSeason = Number(season);
     const requestedEpisode = Number(episode);
-    let tmdbTitle = null;
-    try {
-      tmdbTitle = await tmdbEpisodeTitle(metadata, requestedSeason, requestedEpisode);
-    } catch (error) {
-      // Preserve normal numbering-based playback if TMDb's per-season endpoint
-      // is temporarily unavailable.
-      console.warn(`[companion] could not verify TMDb episode title: ${error.message}`);
-    }
+    const targetTitle = await resolveEpisodeTitle(metadata, requestedSeason, requestedEpisode, episodeTitle);
     const episodeDataFor = async (movieBoxSeason) => {
       const response = await mbpFetch(
         `/index/index/player_tv_episodes?tid=${selected.candidate.id}&season=${movieBoxSeason}`,
@@ -492,11 +531,11 @@ async function resolveStreams({ tmdbId, mediaType, season, episode }, profileId 
     const numberedSourceId = findEpisodeSourceId(requestedData, requestedSeason, requestedEpisode);
     const movieBoxProvidesTitles = hasEpisodeSourceTitles(requestedData);
     // Fast path for titles whose numbering is shared by TMDb and MovieBox.
-    sourceId = tmdbTitle
-      ? findEpisodeSourceIdByTitle(requestedData, tmdbTitle)
+    sourceId = targetTitle
+      ? findEpisodeSourceIdByTitle(requestedData, targetTitle)
       : findEpisodeSourceId(requestedData, requestedSeason, requestedEpisode);
 
-    if (!sourceId && tmdbTitle) {
+    if (!sourceId && targetTitle) {
       const seasons = findMovieBoxSeasonNumbers(detailHtml)
         .filter((number) => number !== requestedSeason);
       // A few MovieBox pages do not render their season switcher in the HTML.
@@ -506,8 +545,11 @@ async function resolveStreams({ tmdbId, mediaType, season, episode }, profileId 
       for (const movieBoxSeason of candidateSeasons) {
         try {
           const data = await episodeDataFor(movieBoxSeason);
-          sourceId = findEpisodeSourceIdByTitle(data, tmdbTitle);
-          if (sourceId) break;
+          sourceId = findEpisodeSourceIdByTitle(data, targetTitle);
+          if (sourceId) {
+            console.log(`[companion] matched episode "${targetTitle}" to MovieBox season ${movieBoxSeason} (requested S${requestedSeason}E${requestedEpisode})`);
+            break;
+          }
         } catch {
           // An absent season is expected while resolving differently-numbered shows.
         }
@@ -515,7 +557,7 @@ async function resolveStreams({ tmdbId, mediaType, season, episode }, profileId 
     }
     // Some older MovieBox responses omit episode titles. Only then retain the
     // number-based behavior; otherwise never silently play a different episode.
-    if (!sourceId && (!tmdbTitle || !movieBoxProvidesTitles)) sourceId = numberedSourceId;
+    if (!sourceId && (!targetTitle || !movieBoxProvidesTitles)) sourceId = numberedSourceId;
   } else {
     sourceId = findInitialSourceId(detailHtml, "movie");
   }
@@ -619,6 +661,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, {
           profiles: profiles.map((p) => ({
             ...p,
+            catalogsConfig: parseCatalogConfig(p.catalogsConfig),
             pluginUrl: privateRepositoryUrl(publicUrl(), p.pluginSetupKey),
             catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(p.pluginSetupKey)}/manifest.json`
           }))
@@ -632,6 +675,7 @@ const server = http.createServer(async (req, res) => {
           ok: true,
           profile: {
             ...created,
+            catalogsConfig: parseCatalogConfig(created.catalogsConfig),
             pluginUrl: privateRepositoryUrl(publicUrl(), created.pluginSetupKey),
             catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(created.pluginSetupKey)}/manifest.json`
           }
@@ -649,6 +693,7 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 200, {
             profile: {
               ...profile,
+              catalogsConfig: parseCatalogConfig(profile.catalogsConfig),
               pluginUrl: privateRepositoryUrl(publicUrl(), profile.pluginSetupKey),
               catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(profile.pluginSetupKey)}/manifest.json`
             }
@@ -1255,13 +1300,14 @@ self.addEventListener('fetch', (e) => {
       tmdbId,
       mediaType,
       season: url.searchParams.get("season"),
-      episode: url.searchParams.get("episode")
+      episode: url.searchParams.get("episode"),
+      episodeTitle: url.searchParams.get("episodeTitle") || url.searchParams.get("episode_title") || url.searchParams.get("title") || ""
     };
     if (!params.tmdbId || (mediaType === "tv" && (!params.season || !params.episode))) {
       return sendJson(res, 400, { error: "Missing media parameters" });
     }
     console.log(`[companion][${activeProfile.name}] stream request tmdb=${params.tmdbId} type=${params.mediaType}` +
-      (params.mediaType === "tv" ? ` season=${Number(params.season)} episode=${Number(params.episode)}` : ""));
+      (params.mediaType === "tv" ? ` season=${Number(params.season)} episode=${Number(params.episode)}` + (params.episodeTitle ? ` title="${params.episodeTitle}"` : "") : ""));
 
     const startTime = Date.now();
     let resolvedStreams;

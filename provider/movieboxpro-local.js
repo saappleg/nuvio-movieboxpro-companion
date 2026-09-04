@@ -6,12 +6,14 @@ var COMPANION_KEY = __COMPANION_KEY__;
 
 function getStreams(tmdbId, mediaType, season, episode) {
   // Newer Nuvio builds may pass one media object; older builds pass four values.
+  var epTitle = "";
   if (tmdbId && typeof tmdbId === "object") {
     var media = tmdbId;
     tmdbId = media.tmdbId || media.tmdb_id || media.id;
     mediaType = media.mediaType || media.media_type || media.type || mediaType;
     season = media.season || media.seasonNumber || media.season_number || season;
     episode = media.episode || media.episodeNumber || media.episode_number || episode;
+    epTitle = media.episodeTitle || media.episode_title || media.name || (media.type === "tv" ? media.title : "") || "";
   }
   var normalizedType = String(mediaType || "movie").toLowerCase();
   normalizedType = /tv|series|show|episode/.test(normalizedType) ? "tv" : "movie";
@@ -19,12 +21,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
   var imdbMatch = rawId.match(/tt\d+/i);
   var numericMatch = rawId.match(/\d+/);
   var normalizedId = imdbMatch ? imdbMatch[0].toLowerCase() : (numericMatch ? numericMatch[0] : "");
-  var query = [
+  var queryParts = [
     "tmdbId=" + encodeURIComponent(normalizedId),
     "mediaType=" + encodeURIComponent(normalizedType),
     "season=" + encodeURIComponent(season == null ? "" : season),
     "episode=" + encodeURIComponent(episode == null ? "" : episode)
-  ].join("&");
+  ];
+  if (epTitle) queryParts.push("episodeTitle=" + encodeURIComponent(epTitle));
+  var query = queryParts.join("&");
 
   return fetch(COMPANION_URL + "/streams?" + query, {
     method: "GET",

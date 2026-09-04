@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.12
+
+- **Cross-Provider Season Resolution & Title Matching**: Automatic fallback to Cinemeta/TVDb episode titles when TMDb per-season lookups fail or season counts diverge (such as Futurama's 14 TVDb seasons vs 11 MovieBox seasons). Added flexible title matching tolerant to episode number prefixes and punctuation, and accept explicit `episodeTitle` query parameters from Nuvio and AIOStreams.
+- **Fix Discovery & Calendar Feeds Display in Dashboard**: Hydrate profile responses with complete catalog descriptors so feed names and types never display as `undefined`. Safeguard dashboard feed renderer with master catalog reconciliation and safe fallbacks.
+- **Fix Proxmox LXC Release Update Script**: Switch `ct/nuviomovieboxprocompanion.sh` to `check_for_gh_release` (properly stripping `v` prefixes to prevent false update loops), add `FORCE_UPDATE=1`, omit redundant OS apt package installs during Playwright updates, and add recovery trap ensuring companion services restart on update failure.
+
 ## 1.0.0-beta.11
 
 - **Resilient Media Recommendations**: Enhanced `loadCatalog` recommendations with automatic `/similar` fallback when recommendations are sparse, and top-rated/popular fallbacks when seeds yield zero results so discovery lists never load empty.
