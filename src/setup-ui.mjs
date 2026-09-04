@@ -377,6 +377,13 @@ export function setupPage() {
       </div>
       <textarea id="pluginUrl" class="code" rows="2" readonly style="display:none;margin-top:12px" aria-label="Private Nuvio Provider URL"></textarea>
       <div class="message" id="pluginMessage"></div>
+      <p style="margin-top:18px">For AIOStreams or other Stremio clients, use the compatible stream adapter:</p>
+      <div class="row">
+        <button class="secondary" id="revealStremio">Reveal AIO/Stremio URL</button>
+        <button class="secondary" id="copyStremio" hidden>Copy URL</button>
+      </div>
+      <textarea id="stremioUrl" class="code" rows="2" readonly style="display:none;margin-top:12px" aria-label="Private AIO Streams Stremio URL"></textarea>
+      <div class="message" id="stremioMessage"></div>
     </article>
 
     <!-- 7. Calendar & Recommended Add-on -->
@@ -568,6 +575,7 @@ export function setupPage() {
 
   let pluginValue = '';
   let catalogValue = '';
+  let stremioValue = '';
   let feedsData = [];
   let masterFeeds = [];
   let detectedTz = 'UTC';
@@ -862,7 +870,7 @@ export function setupPage() {
 
   q('revealPlugin').onclick = async () => {
     try {
-      const d = await api('/api/setup/plugin-url');
+      const d = await api('/api/setup/plugin-url?profileId=' + encodeURIComponent(currentProfileId));
       pluginValue = d.url;
       q('pluginUrl').value = d.url;
       q('pluginUrl').style.display = 'block';
@@ -882,9 +890,31 @@ export function setupPage() {
     }
   };
 
+  q('revealStremio').onclick = async () => {
+    try {
+      const d = await api('/api/setup/stremio-url?profileId=' + encodeURIComponent(currentProfileId));
+      stremioValue = d.url;
+      q('stremioUrl').value = d.url;
+      q('stremioUrl').style.display = 'block';
+      q('copyStremio').hidden = false;
+      msg('stremioMessage', 'Use this URL in AIOStreams or a Stremio client.', 'ok');
+    } catch (e) { msg('stremioMessage', e.message, 'error'); }
+  };
+
+  q('copyStremio').onclick = async () => {
+    try {
+      await copyText(stremioValue, 'stremioUrl');
+      msg('stremioMessage', 'AIO/Stremio URL copied to clipboard!', 'ok');
+    } catch {
+      q('stremioUrl').focus();
+      q('stremioUrl').select();
+      msg('stremioMessage', 'URL selected; use Ctrl+C / Cmd+C to copy.', 'error');
+    }
+  };
+
   q('revealCatalog').onclick = async () => {
     try {
-      const d = await api('/api/setup/catalog-url');
+      const d = await api('/api/setup/catalog-url?profileId=' + encodeURIComponent(currentProfileId));
       catalogValue = d.url;
       q('catalogUrl').value = d.url;
       q('catalogUrl').style.display = 'block';
@@ -1119,8 +1149,10 @@ export function setupPage() {
     q('deleteProfileBtn').style.display = p.id === 'default' ? 'none' : 'inline-flex';
     pluginValue = p.pluginUrl;
     catalogValue = p.catalogUrl;
+    stremioValue = p.stremioUrl;
     if (q('pluginUrl').style.display !== 'none') q('pluginUrl').value = p.pluginUrl;
     if (q('catalogUrl').style.display !== 'none') q('catalogUrl').value = p.catalogUrl;
+    if (q('stremioUrl').style.display !== 'none') q('stremioUrl').value = p.stremioUrl;
 
     // Populate seeds for active profile
     const tvSeeds = Array.isArray(p.recommendationSeeds) ? p.recommendationSeeds : [];
