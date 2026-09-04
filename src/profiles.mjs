@@ -18,14 +18,38 @@ function slugify(name) {
 
 let cachedProfiles = null;
 
+function syncDefaultProfileWithEnv(defaultProf) {
+  if (!defaultProf) return;
+  if (process.env.COMPANION_KEY) defaultProf.companionKey = process.env.COMPANION_KEY;
+  if (process.env.PLUGIN_SETUP_KEY) defaultProf.pluginSetupKey = process.env.PLUGIN_SETUP_KEY;
+  if (process.env.MOVIEBOXPRO_PROFILE) defaultProf.browserProfileDir = path.resolve(process.env.MOVIEBOXPRO_PROFILE);
+  if (process.env.RECOMMENDATION_SEEDS !== undefined) {
+    try { defaultProf.recommendationSeeds = JSON.parse(process.env.RECOMMENDATION_SEEDS || "[]"); } catch {}
+  }
+  if (process.env.MOVIE_RECOMMENDATION_SEEDS !== undefined) {
+    try { defaultProf.movieRecommendationSeeds = JSON.parse(process.env.MOVIE_RECOMMENDATION_SEEDS || "[]"); } catch {}
+  }
+  if (process.env.DISCOVERY_CATALOGS_CONFIG !== undefined) {
+    try { defaultProf.catalogsConfig = JSON.parse(process.env.DISCOVERY_CATALOGS_CONFIG || "null"); } catch {}
+  }
+  if (process.env.USER_TIMEZONE !== undefined) {
+    defaultProf.userTimezone = process.env.USER_TIMEZONE;
+  }
+  if (process.env.NUVIO_CLOUD_TOKEN || process.env.NUVIO_CLOUD_EMAIL) {
+    defaultProf.nuvioCloud = {
+      connected: Boolean(process.env.NUVIO_CLOUD_TOKEN || process.env.NUVIO_CLOUD_EMAIL),
+      email: process.env.NUVIO_CLOUD_EMAIL || "",
+      token: process.env.NUVIO_CLOUD_TOKEN || "",
+      profileId: process.env.NUVIO_CLOUD_PROFILE_ID || "1",
+      profileName: process.env.NUVIO_CLOUD_PROFILE_NAME || "Default Profile",
+      lastSync: process.env.NUVIO_CLOUD_LAST_SYNC || null
+    };
+  }
+}
+
 export async function loadProfiles() {
   if (cachedProfiles) {
-    const defaultProf = cachedProfiles.find((p) => p.id === "default");
-    if (defaultProf) {
-      if (process.env.COMPANION_KEY) defaultProf.companionKey = process.env.COMPANION_KEY;
-      if (process.env.PLUGIN_SETUP_KEY) defaultProf.pluginSetupKey = process.env.PLUGIN_SETUP_KEY;
-      if (process.env.MOVIEBOXPRO_PROFILE) defaultProf.browserProfileDir = path.resolve(process.env.MOVIEBOXPRO_PROFILE);
-    }
+    syncDefaultProfileWithEnv(cachedProfiles.find((p) => p.id === "default"));
     return cachedProfiles;
   }
 
@@ -34,12 +58,7 @@ export async function loadProfiles() {
     const parsed = JSON.parse(text);
     if (Array.isArray(parsed) && parsed.length) {
       cachedProfiles = parsed;
-      const defaultProf = cachedProfiles.find((p) => p.id === "default");
-      if (defaultProf) {
-        if (process.env.COMPANION_KEY) defaultProf.companionKey = process.env.COMPANION_KEY;
-        if (process.env.PLUGIN_SETUP_KEY) defaultProf.pluginSetupKey = process.env.PLUGIN_SETUP_KEY;
-        if (process.env.MOVIEBOXPRO_PROFILE) defaultProf.browserProfileDir = path.resolve(process.env.MOVIEBOXPRO_PROFILE);
-      }
+      syncDefaultProfileWithEnv(cachedProfiles.find((p) => p.id === "default"));
       return cachedProfiles;
     }
   } catch {}

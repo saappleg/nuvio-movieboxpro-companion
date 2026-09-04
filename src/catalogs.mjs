@@ -526,7 +526,7 @@ export function matchCatalogRequestPath(pathname) {
   return undefined;
 }
 
-export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = fetch, now = new Date(), mediaType = "series", extra = {}) {
+export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = fetch, now = new Date(), mediaType = "series", extra = {}, customConfig = undefined) {
   const { search, skip = 0 } = parseCatalogExtra(extra);
   const normalizedType = mediaType === "movie" || catalogId.includes("movie") || catalogId === "now-playing" ? "movie" : "series";
   const page = Math.max(1, Math.floor(Number(skip || 0) / 20) + 1);
@@ -535,9 +535,10 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
   // Full Search Support for movies and TV series
   if (search && search.trim()) {
     const searchQuery = search.trim();
-    if (/^tt\d+$/i.test(searchQuery)) {
+    const cleanSearch = searchQuery.replace(/^(?:imdb|tmdb):/i, "").trim();
+    if (/^tt\d+$/i.test(cleanSearch)) {
       try {
-        const findData = await tmdb(`find/${searchQuery}`, { external_source: "imdb_id" }, fetchImpl);
+        const findData = await tmdb(`find/${cleanSearch}`, { external_source: "imdb_id" }, fetchImpl);
         const matches = normalizedType === "movie"
           ? (findData.movie_results || [])
           : (findData.tv_results || []);
@@ -607,8 +608,25 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
     if (!validSeeds.length) {
       results = (await tmdb("tv/top_rated", { language: "en-US", page }, fetchImpl)).results || [];
     } else {
-      const groups = await batchMap(validSeeds, 8, async (seed) =>
-        (await tmdb(`tv/${seed.id}/recommendations`, { language: "en-US", page: 1 }, fetchImpl)).results?.slice(0, 10) || []);
+      const groups = await batchMap(validSeeds, 8, async (seed) => {
+        try {
+          const recs = (await tmdb(`tv/${seed.id}/recommendations`, { language: "en-US", page: 1 }, fetchImpl)).results || [];
+          if (recs.length >= 6) return recs.slice(0, 10);
+          const similar = (await tmdb(`tv/${seed.id}/similar`, { language: "en-US", page: 1 }, fetchImpl)).results || [];
+          const combined = [...recs, ...similar];
+          const seen = new Set();
+          const deduped = [];
+          for (const item of combined) {
+            if (item?.id && !seen.has(item.id)) {
+              seen.add(item.id);
+              deduped.push(item);
+            }
+          }
+          return deduped.slice(0, 10);
+        } catch {
+          return [];
+        }
+      });
       const scores = new Map();
       for (const item of groups.flat()) {
         if (allSeedIds.has(Number(item.id))) continue;
@@ -617,6 +635,9 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
         scores.set(item.id, entry);
       }
       results = [...scores.values()].sort((a, b) => b.score - a.score || (b.item.popularity || 0) - (a.item.popularity || 0)).map((entry) => entry.item);
+      if (!results.length) {
+        results = (await tmdb("tv/top_rated", { language: "en-US", page }, fetchImpl)).results || [];
+      }
     }
   }
   // 5. New Movies
@@ -634,8 +655,25 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
     if (!validSeeds.length) {
       results = (await tmdb("movie/top_rated", { language: "en-US", page }, fetchImpl)).results || [];
     } else {
-      const groups = await batchMap(validSeeds, 8, async (seed) =>
-        (await tmdb(`movie/${seed.id}/recommendations`, { language: "en-US", page: 1 }, fetchImpl)).results?.slice(0, 10) || []);
+      const groups = await batchMap(validSeeds, 8, async (seed) => {
+        try {
+          const recs = (await tmdb(`movie/${seed.id}/recommendations`, { language: "en-US", page: 1 }, fetchImpl)).results || [];
+          if (recs.length >= 6) return recs.slice(0, 10);
+          const similar = (await tmdb(`movie/${seed.id}/similar`, { language: "en-US", page: 1 }, fetchImpl)).results || [];
+          const combined = [...recs, ...similar];
+          const seen = new Set();
+          const deduped = [];
+          for (const item of combined) {
+            if (item?.id && !seen.has(item.id)) {
+              seen.add(item.id);
+              deduped.push(item);
+            }
+          }
+          return deduped.slice(0, 10);
+        } catch {
+          return [];
+        }
+      });
       const scores = new Map();
       for (const item of groups.flat()) {
         if (allSeedIds.has(Number(item.id))) continue;
@@ -644,6 +682,9 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
         scores.set(item.id, entry);
       }
       results = [...scores.values()].sort((a, b) => b.score - a.score || (b.item.popularity || 0) - (a.item.popularity || 0)).map((entry) => entry.item);
+      if (!results.length) {
+        results = (await tmdb("movie/top_rated", { language: "en-US", page }, fetchImpl)).results || [];
+      }
     }
   }
   // Legacy / Calendar aliases
@@ -680,7 +721,7 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
   } else if (catalogId === "k-dramas") {
     results = (await tmdb("discover/tv", { language: "en-US", sort_by: "popularity.desc", with_original_language: "ko", "vote_count.gte": 10, page }, fetchImpl)).results || [];
   } else if (String(catalogId).startsWith("custom-")) {
-    const config = parseCatalogConfig();
+    const config = parseCatalogConfig(customConfig || undefined);
     const customFeed = config.find((c) => c.id === catalogId);
     const filters = customFeed?.filters || {};
     const path = (customFeed?.type === "series" || normalizedType === "series") ? "discover/tv" : "discover/movie";
@@ -711,11 +752,13 @@ export async function loadCatalog(catalogId, seeds = parseSeeds(), fetchImpl = f
 
 export async function loadMeta(rawId, fetchImpl = fetch, mediaType = "series") {
   const isMovie = mediaType === "movie";
-  let tmdbId = rawId;
-  const isImdb = typeof rawId === "string" && /^tt\d+$/i.test(rawId);
+  const cleanId = String(rawId || "").trim();
+  const cleanWithoutPrefix = cleanId.replace(/^(?:imdb|tmdb):/i, "").trim();
+  const isImdb = /^tt\d+$/i.test(cleanWithoutPrefix);
+  let tmdbId = cleanWithoutPrefix;
 
   if (isImdb) {
-    const findData = await tmdb(`find/${rawId}`, { external_source: "imdb_id" }, fetchImpl);
+    const findData = await tmdb(`find/${cleanWithoutPrefix}`, { external_source: "imdb_id" }, fetchImpl);
     const match = isMovie ? findData.movie_results?.[0] : findData.tv_results?.[0];
     if (!match?.id) throw new Error(`${isMovie ? "Movie" : "Series"} with IMDb ID ${rawId} was not found`);
     tmdbId = match.id;
@@ -727,7 +770,7 @@ export async function loadMeta(rawId, fetchImpl = fetch, mediaType = "series") {
   if (!meta) throw new Error(`${isMovie ? "Movie" : "Series"} metadata was not found`);
 
   // Preserve the requested ID format (e.g. tt27799594 or tmdb:123)
-  if (isImdb) meta.id = String(rawId).toLowerCase();
+  if (isImdb) meta.id = String(cleanWithoutPrefix).toLowerCase();
   meta.genres = (data.genres || []).map((genre) => genre.name).filter(Boolean);
   meta.status = data.status || undefined;
   if (data.runtime) meta.runtime = `${data.runtime} min`;

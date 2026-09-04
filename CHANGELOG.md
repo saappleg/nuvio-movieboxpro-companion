@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-beta.11
+
+- **Resilient Media Recommendations**: Enhanced `loadCatalog` recommendations with automatic `/similar` fallback when recommendations are sparse, and top-rated/popular fallbacks when seeds yield zero results so discovery lists never load empty.
+- **Multi-Profile Isolation & Sync**: Support per-profile recommendation seeds, custom catalog feeds, and dedicated Nuvio Cloud library syncing across all secondary and default profiles.
+- **Automatic Multi-Profile Background Sync**: Recurring 6-hour background sync now checks and syncs all connected Nuvio Cloud profiles with automatic TMDb cache invalidation.
+- **Prefix-Tolerant ID Normalization**: Clean handling of `imdb:` and `tmdb:` URI prefixes across catalog searches, metadata queries, and IntroDB episode segment resolution.
+- **AIOStreams Integration**: Restored local AIOStreams build, dataset mapping synchronization, and background daemon execution.
+- **Scoped Test Suite**: Configured root test runner to execute companion tests cleanly without recursion collisions.
+
 ## 1.0.0-beta.10
 
 - **Cross-provider Season Resolution**: Match TV episodes by their TMDb episode title whenever MovieBox uses different season numbering, preventing an incorrect episode from being selected. Falls back to numeric matching only for legacy responses that provide no episode-title metadata.

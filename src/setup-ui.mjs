@@ -819,10 +819,10 @@ export function setupPage() {
       msg('cloudMessage', 'Authenticating and syncing library with Nuvio Cloud…');
       const d = await api('/api/setup/nuvio-cloud/login', {
         method: 'POST',
-        body: JSON.stringify({ email: q('cloudEmail').value, password: q('cloudPass').value })
+        body: JSON.stringify({ email: q('cloudEmail').value, password: q('cloudPass').value, profileId: currentProfileId })
       });
       msg('cloudMessage', 'Connected! Synced ' + (d.syncSummary?.itemCount || 0) + ' items from Nuvio Cloud.', 'ok');
-      await loadState();
+      await loadProfilesList();
     } catch (e) {
       msg('cloudMessage', e.message, 'error');
     } finally {
@@ -834,9 +834,9 @@ export function setupPage() {
     try {
       q('syncCloud').disabled = true;
       msg('cloudMessage', 'Syncing library with Nuvio Cloud…');
-      const d = await api('/api/setup/nuvio-cloud/sync', { method: 'POST' });
+      const d = await api('/api/setup/nuvio-cloud/sync', { method: 'POST', body: JSON.stringify({ profileId: currentProfileId }) });
       msg('cloudMessage', 'Sync complete! ' + (d.syncSummary?.itemCount || 0) + ' library items refreshed.', 'ok');
-      await loadState();
+      await loadProfilesList();
     } catch (e) {
       msg('cloudMessage', e.message, 'error');
     } finally {
@@ -846,9 +846,9 @@ export function setupPage() {
 
   q('disconnectCloud').onclick = async () => {
     try {
-      await api('/api/setup/nuvio-cloud/disconnect', { method: 'POST' });
+      await api('/api/setup/nuvio-cloud/disconnect', { method: 'POST', body: JSON.stringify({ profileId: currentProfileId }) });
       msg('cloudMessage', 'Disconnected from Nuvio Cloud.', 'ok');
-      await loadState();
+      await loadProfilesList();
     } catch (e) {
       msg('cloudMessage', e.message, 'error');
     }
@@ -901,10 +901,10 @@ export function setupPage() {
   q('saveFeeds').onclick = async () => {
     try {
       q('saveFeeds').disabled = true;
-      const clean = feedsData.map(f => ({ id: f.id, enabled: Boolean(f.enabled) }));
+      const clean = feedsData.map(f => ({ id: f.id, enabled: Boolean(f.enabled), ...(f.isCustom ? { type: f.type, name: f.name, description: f.description, filters: f.filters, isCustom: true } : {}) }));
       const d = await api('/api/setup/catalogs-config', {
         method: 'POST',
-        body: JSON.stringify({ catalogs: clean })
+        body: JSON.stringify({ catalogs: clean, profileId: currentProfileId })
       });
       feedsData = d.catalogs || clean;
       renderFeeds();
@@ -921,7 +921,7 @@ export function setupPage() {
       q('resetFeeds').disabled = true;
       const d = await api('/api/setup/catalogs-config', {
         method: 'POST',
-        body: JSON.stringify({ catalogs: [] })
+        body: JSON.stringify({ catalogs: [], profileId: currentProfileId })
       });
       feedsData = d.catalogs;
       renderFeeds();
@@ -1041,42 +1041,46 @@ export function setupPage() {
   q('saveSeeds').onclick = async () => {
     try {
       q('saveSeeds').disabled = true;
-      const d = await api('/api/setup/recommendations', { method: 'POST', body: JSON.stringify({ shows: q('seedShows').value }) });
-      q('seedShows').value = d.seeds.map(x => x.name).join(', ');
+      const d = await api('/api/setup/recommendations', { method: 'POST', body: JSON.stringify({ shows: q('seedShows').value, profileId: currentProfileId }) });
+      q('seedShows').value = (d.seeds || []).map(x => x.name).join(', ');
       updateSeedBadges(d.seeds, null);
-      msg('manualSeedsMessage', 'Saved ' + d.seeds.length + ' TV recommendation seeds.', 'ok');
+      msg('manualSeedsMessage', 'Saved ' + (d.seeds?.length || 0) + ' TV recommendation seeds.', 'ok');
+      await loadProfilesList();
     } catch (e) { msg('manualSeedsMessage', e.message, 'error'); }
     finally { q('saveSeeds').disabled = false; }
   };
 
   q('clearTvSeeds').onclick = async () => {
-    if (!confirm('Clear all saved TV seeds?')) return;
+    if (!confirm('Clear all saved TV seeds for this profile?')) return;
     try {
       q('seedShows').value = '';
-      await api('/api/setup/recommendations', { method: 'POST', body: JSON.stringify({ shows: '' }) }).catch(() => {});
+      await api('/api/setup/recommendations', { method: 'POST', body: JSON.stringify({ shows: '', profileId: currentProfileId }) }).catch(() => {});
       updateSeedBadges([], null);
       msg('manualSeedsMessage', 'TV recommendation seeds cleared.', 'ok');
+      await loadProfilesList();
     } catch (e) { msg('manualSeedsMessage', e.message, 'error'); }
   };
 
   q('saveMovieSeeds').onclick = async () => {
     try {
       q('saveMovieSeeds').disabled = true;
-      const d = await api('/api/setup/recommendations/movies', { method: 'POST', body: JSON.stringify({ movies: q('seedMovies').value }) });
-      q('seedMovies').value = d.seeds.map(x => x.name).join(', ');
+      const d = await api('/api/setup/recommendations/movies', { method: 'POST', body: JSON.stringify({ movies: q('seedMovies').value, profileId: currentProfileId }) });
+      q('seedMovies').value = (d.seeds || []).map(x => x.name).join(', ');
       updateSeedBadges(null, d.seeds);
-      msg('manualSeedsMessage', 'Saved ' + d.seeds.length + ' Movie recommendation seeds.', 'ok');
+      msg('manualSeedsMessage', 'Saved ' + (d.seeds?.length || 0) + ' Movie recommendation seeds.', 'ok');
+      await loadProfilesList();
     } catch (e) { msg('manualSeedsMessage', e.message, 'error'); }
     finally { q('saveMovieSeeds').disabled = false; }
   };
 
   q('clearMovieSeeds').onclick = async () => {
-    if (!confirm('Clear all saved Movie seeds?')) return;
+    if (!confirm('Clear all saved Movie seeds for this profile?')) return;
     try {
       q('seedMovies').value = '';
-      await api('/api/setup/recommendations/movies', { method: 'POST', body: JSON.stringify({ movies: '' }) }).catch(() => {});
+      await api('/api/setup/recommendations/movies', { method: 'POST', body: JSON.stringify({ movies: '', profileId: currentProfileId }) }).catch(() => {});
       updateSeedBadges(null, []);
       msg('manualSeedsMessage', 'Movie recommendation seeds cleared.', 'ok');
+      await loadProfilesList();
     } catch (e) { msg('manualSeedsMessage', e.message, 'error'); }
   };
 
@@ -1111,6 +1115,36 @@ export function setupPage() {
     catalogValue = p.catalogUrl;
     if (q('pluginUrl').style.display !== 'none') q('pluginUrl').value = p.pluginUrl;
     if (q('catalogUrl').style.display !== 'none') q('catalogUrl').value = p.catalogUrl;
+
+    // Populate seeds for active profile
+    const tvSeeds = Array.isArray(p.recommendationSeeds) ? p.recommendationSeeds : [];
+    const movieSeeds = Array.isArray(p.movieRecommendationSeeds) ? p.movieRecommendationSeeds : [];
+    q('seedShows').value = tvSeeds.map(x => x.name).join(', ');
+    q('seedMovies').value = movieSeeds.map(x => x.name).join(', ');
+    updateSeedBadges(tvSeeds, movieSeeds);
+
+    // Populate feeds layout for active profile
+    if (Array.isArray(p.catalogsConfig) && p.catalogsConfig.length) {
+      feedsData = p.catalogsConfig;
+      renderFeeds();
+    }
+
+    // Populate Nuvio Cloud state for active profile
+    if (p.nuvioCloud?.connected) {
+      q('cloudAuthForm').style.display = 'none';
+      q('cloudConnectedView').style.display = 'block';
+      q('cloudUserEmail').textContent = p.nuvioCloud.email;
+      q('cloudProfileName').textContent = p.nuvioCloud.profileName || p.name;
+      q('cloudLastSync').textContent = p.nuvioCloud.lastSync ? new Date(p.nuvioCloud.lastSync).toLocaleString() : 'Never';
+      q('cloudStatusText').textContent = 'Connected';
+      q('nuvioCloudBadge').innerHTML = '<span class="dot good"></span> Nuvio Cloud: Connected';
+    } else {
+      q('cloudAuthForm').style.display = 'block';
+      q('cloudConnectedView').style.display = 'none';
+      q('cloudStatusText').textContent = 'Not connected';
+      q('nuvioCloudBadge').innerHTML = '<span class="dot bad"></span> Nuvio Cloud: Not Connected';
+    }
+
     checkProfileStatus(p.id);
   }
 
