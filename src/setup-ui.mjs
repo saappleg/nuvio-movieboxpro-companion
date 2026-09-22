@@ -277,7 +277,7 @@ export function setupPage() {
     <!-- System Health & Recovery -->
     <article class="card wide" id="healthCard" style="background:linear-gradient(160deg,#111b31,#0a101f)">
       <div class="card-header">
-        <h2>🩺 System Health & Recovery</h2>
+        <h2>System Health & Recovery</h2>
         <div class="status"><span class="dot" id="healthOverallDot"></span><strong id="healthOverall">Not checked</strong></div>
       </div>
       <p>Check MovieBox sessions, TMDb, the provider/catalog manifests, and Nuvio Cloud sync from one place.</p>
@@ -398,6 +398,13 @@ export function setupPage() {
       </div>
       <textarea id="pluginUrl" class="code" rows="2" readonly style="display:none;margin-top:12px" aria-label="Private Nuvio Provider URL"></textarea>
       <div class="message" id="pluginMessage"></div>
+      <p style="margin-top:18px">For AIOStreams or other Stremio clients, use the compatible stream adapter:</p>
+      <div class="row">
+        <button class="secondary" id="revealStremio">Reveal AIO/Stremio URL</button>
+        <button class="secondary" id="copyStremio" hidden>Copy URL</button>
+      </div>
+      <textarea id="stremioUrl" class="code" rows="2" readonly style="display:none;margin-top:12px" aria-label="Private AIO Streams Stremio URL"></textarea>
+      <div class="message" id="stremioMessage"></div>
     </article>
 
     <!-- 7. Calendar & Recommended Add-on -->
@@ -589,6 +596,7 @@ export function setupPage() {
 
   let pluginValue = '';
   let catalogValue = '';
+  let stremioValue = '';
   let feedsData = [];
   let masterFeeds = [];
   let detectedTz = 'UTC';
@@ -833,7 +841,6 @@ export function setupPage() {
       q('movieboxText').textContent = s.authenticated ? 'Authenticated' : 'Login Required';
       q('mbpBadge').innerHTML = '<span class="dot ' + (s.authenticated ? 'good' : 'bad') + '"></span> MovieBoxPro: ' + (s.authenticated ? 'Connected' : 'Login Required');
       msg('loginMessage', s.authenticated ? 'MovieBoxPro session is active and ready.' : 'Session not detected. Complete login and check again.', s.authenticated ? 'ok' : 'error');
-      await loadHealth();
     } catch (e) {
       msg('loginMessage', e.message, 'error');
     } finally {
@@ -844,22 +851,18 @@ export function setupPage() {
   function stateClass(state) {
     return state === 'healthy' ? 'good' : (state === 'error' ? 'bad' : '');
   }
-
   function stateLabel(state) {
     return state === 'healthy' ? 'Healthy' : (state === 'error' ? 'Needs attention' : (state === 'warning' ? 'Warning' : 'Not checked'));
   }
-
   function renderHealth(h = {}) {
     const overall = h.status || 'unknown';
     q('healthOverall').textContent = stateLabel(overall);
     q('healthOverallDot').className = 'dot ' + stateClass(overall);
     q('healthCheckedAt').textContent = h.checkedAt ? new Date(h.checkedAt).toLocaleString() : 'Not checked';
-
     const list = q('healthList');
     if (!list) return;
     list.innerHTML = '';
-    const components = h.components || {};
-    Object.entries(components).forEach(([name, component]) => {
+    Object.entries(h.components || {}).forEach(([name, component]) => {
       const row = document.createElement('div');
       row.style.cssText = 'background:var(--panel-sub);border:1px solid var(--line);border-radius:10px;padding:10px 12px';
       const title = document.createElement('div');
@@ -882,7 +885,6 @@ export function setupPage() {
       }
       list.appendChild(row);
     });
-
     (h.profiles || []).filter((profile) => profile.id !== 'default').forEach((profile) => {
       const row = document.createElement('div');
       row.style.cssText = 'background:var(--panel-sub);border:1px solid var(--line);border-radius:10px;padding:10px 12px';
@@ -890,7 +892,6 @@ export function setupPage() {
       list.appendChild(row);
     });
   }
-
   async function loadHealth() {
     const h = await api('/api/setup/health');
     renderHealth(h);
@@ -902,7 +903,6 @@ export function setupPage() {
     }
     return h;
   }
-
   q('runHealthCheck').onclick = async () => {
     try {
       q('runHealthCheck').disabled = true;
@@ -916,7 +916,6 @@ export function setupPage() {
       q('runHealthCheck').disabled = false;
     }
   };
-
   q('recoverMoviebox').onclick = async () => {
     try {
       q('recoverMoviebox').disabled = true;
@@ -928,7 +927,6 @@ export function setupPage() {
       q('recoverMoviebox').disabled = false;
     }
   };
-
   q('refreshDiagnostics').onclick = async () => {
     try {
       const d = await api('/api/setup/diagnostics');
@@ -983,7 +981,7 @@ export function setupPage() {
 
   q('revealPlugin').onclick = async () => {
     try {
-      const d = await api('/api/setup/plugin-url');
+      const d = await api('/api/setup/plugin-url?profileId=' + encodeURIComponent(currentProfileId));
       pluginValue = d.url;
       q('pluginUrl').value = d.url;
       q('pluginUrl').style.display = 'block';
@@ -1003,9 +1001,31 @@ export function setupPage() {
     }
   };
 
+  q('revealStremio').onclick = async () => {
+    try {
+      const d = await api('/api/setup/stremio-url?profileId=' + encodeURIComponent(currentProfileId));
+      stremioValue = d.url;
+      q('stremioUrl').value = d.url;
+      q('stremioUrl').style.display = 'block';
+      q('copyStremio').hidden = false;
+      msg('stremioMessage', 'Use this URL in AIOStreams or a Stremio client.', 'ok');
+    } catch (e) { msg('stremioMessage', e.message, 'error'); }
+  };
+
+  q('copyStremio').onclick = async () => {
+    try {
+      await copyText(stremioValue, 'stremioUrl');
+      msg('stremioMessage', 'AIO/Stremio URL copied to clipboard!', 'ok');
+    } catch {
+      q('stremioUrl').focus();
+      q('stremioUrl').select();
+      msg('stremioMessage', 'URL selected; use Ctrl+C / Cmd+C to copy.', 'error');
+    }
+  };
+
   q('revealCatalog').onclick = async () => {
     try {
-      const d = await api('/api/setup/catalog-url');
+      const d = await api('/api/setup/catalog-url?profileId=' + encodeURIComponent(currentProfileId));
       catalogValue = d.url;
       q('catalogUrl').value = d.url;
       q('catalogUrl').style.display = 'block';
@@ -1240,8 +1260,10 @@ export function setupPage() {
     q('deleteProfileBtn').style.display = p.id === 'default' ? 'none' : 'inline-flex';
     pluginValue = p.pluginUrl;
     catalogValue = p.catalogUrl;
+    stremioValue = p.stremioUrl;
     if (q('pluginUrl').style.display !== 'none') q('pluginUrl').value = p.pluginUrl;
     if (q('catalogUrl').style.display !== 'none') q('catalogUrl').value = p.catalogUrl;
+    if (q('stremioUrl').style.display !== 'none') q('stremioUrl').value = p.stremioUrl;
 
     // Populate seeds for active profile
     const tvSeeds = Array.isArray(p.recommendationSeeds) ? p.recommendationSeeds : [];

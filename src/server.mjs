@@ -4,7 +4,14 @@ import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { setupPage } from "./setup-ui.mjs";
-import { matchPrivateRepositoryPath, privateRepositoryUrl, repositoryManifest } from "./repository.mjs";
+import {
+  matchPrivateRepositoryPath,
+  matchStremioPath,
+  privateRepositoryUrl,
+  repositoryManifest,
+  stremioAddonUrl,
+  stremioManifest
+} from "./repository.mjs";
 import {
   chooseCandidate,
   findEpisodeSourceId,
@@ -94,23 +101,13 @@ const BASE = "https://www.movieboxpro.app";
 const PROFILE_DIR = path.resolve(process.env.MOVIEBOXPRO_PROFILE || "work/movieboxpro-profile");
 
 const profileSessions = new Map();
-
 const serviceStartedAt = new Date().toISOString();
-const diagnosticsState = {
-  lastHealthCheck: null,
-  lastErrors: [],
-  cloudSync: {
-    lastAttempt: null,
-    lastSuccess: null,
-    lastFailure: null,
-    consecutiveFailures: 0
-  }
-};
+const diagnosticsState = { lastHealthCheck: null, lastErrors: [], profileHealth: {}, tmdb: null };
 
 export function getProfileSession(profileId = "default", customProfileDir = null) {
   const cleanId = String(profileId || "").toLowerCase().trim() || "default";
   if (!profileSessions.has(cleanId)) {
-    const dir = customProfileDir || (cleanId === "default" ? PROFILE_DIR : path.resolve(`work/movieboxpro-profile-${cleanId}`));
+    const dir = customProfileDir || (cleanId === "default" ? PROFILE_DIR : path.join(path.dirname(PROFILE_DIR), `movieboxpro-profile-${cleanId}`));
     profileSessions.set(cleanId, {
       profileId: cleanId,
       profileDir: dir,
@@ -126,6 +123,59 @@ export function getProfileSession(profileId = "default", customProfileDir = null
 
 function publicUrl() {
   return String(process.env.COMPANION_PUBLIC_URL || `http://${HOST}:${PORT}`).replace(/\/$/, "");
+}
+
+async function profileForKey(key) {
+  if (!key) return null;
+  return await getProfileByPluginKey(key) ||
+    await getProfileByCompanionKey(key) ||
+    (process.env.PLUGIN_SETUP_KEY && key === process.env.PLUGIN_SETUP_KEY ? await getProfileById("default") : null) ||
+    (process.env.COMPANION_KEY && key === process.env.COMPANION_KEY ? await getProfileById("default") : null);
+}
+
+function streamProxyEnabled() {
+  return String(process.env.STREAM_PROXY_ENABLED ?? "true").toLowerCase() !== "false";
+}
+
+function proxyStreamUrl(streamUrl, profile) {
+  if (!streamProxyEnabled() || !streamUrl) return streamUrl;
+  const key = profile?.pluginSetupKey || profile?.companionKey;
+  if (!key) return streamUrl;
+  const proxy = new URL("/stream/proxy", publicUrl());
+  proxy.searchParams.set("key", key);
+  proxy.searchParams.set("url", streamUrl);
+  return proxy.href;
+}
+
+function formatStreamsForClient(streams, profile, format = "nuvio") {
+  return (Array.isArray(streams) ? streams : []).filter((stream) => stream?.url).map((stream) => {
+    const { _meta, headers = {}, url: upstreamUrl, ...rest } = stream;
+    const formatted = {
+      ...rest,
+      name: stream.name || "MovieBoxPro",
+      title: stream.title || stream.name || "MovieBoxPro",
+      url: proxyStreamUrl(upstreamUrl, profile)
+    };
+    if (format === "stremio") {
+      formatted.behaviorHints = {
+        ...(stream.behaviorHints || {}),
+        proxyHeaders: {
+          ...(stream.behaviorHints?.proxyHeaders || {}),
+          request: headers
+        }
+      };
+    } else {
+      formatted.headers = headers;
+      formatted.behaviorHints = {
+        ...(stream.behaviorHints || {}),
+        proxyHeaders: {
+          ...(stream.behaviorHints?.proxyHeaders || {}),
+          request: headers
+        }
+      };
+    }
+    return formatted;
+  });
 }
 
 function parseCookies(header = "") {
@@ -295,6 +345,58 @@ async function browserSessionStatus(profileId = "default") {
   return result;
 }
 
+function sessionHealthComponent(health) {
+  if (!health?.lastChecked) {
+    return { state: "unknown", code: "not_checked", message: "MovieBoxPro session has not been checked yet", action: "Run a health check or check the MovieBox session" };
+  }
+  if (health.authenticated) return { state: "healthy", code: "ok", message: "MovieBoxPro session is active" };
+  return { state: "warning", code: "login_required", message: "MovieBoxPro login required", action: "Open the MovieBox login window and check the session again" };
+}
+
+async function getHealthSnapshot(refresh = false) {
+  const profiles = await getProfiles();
+  if (refresh) {
+    const checks = await Promise.all(profiles.map((profile) => checkSessionHealth(profile.id)));
+    diagnosticsState.profileHealth = Object.fromEntries(profiles.map((profile, index) => [profile.id, checks[index]]));
+    if (process.env.TMDB_API_KEY || process.env.TMDB_BEARER_TOKEN) {
+      try {
+        await withRetry(() => withTimeout(tmdb("configuration"), 8000, "TMDb health check timed out"), { retries: 1, delayMs: 200 });
+        diagnosticsState.tmdb = { state: "healthy", code: "ok", message: "TMDb API is responding" };
+      } catch (error) {
+        const classified = classifyError(error);
+        diagnosticsState.tmdb = { state: "error", code: classified.code, message: classified.message, action: classified.action };
+        diagnosticsState.lastErrors.unshift({ timestamp: new Date().toISOString(), context: "tmdb-health", ...classified });
+        diagnosticsState.lastErrors.length = Math.min(diagnosticsState.lastErrors.length, 20);
+      }
+    }
+    diagnosticsState.lastHealthCheck = new Date().toISOString();
+  }
+
+  const profileHealth = profiles.map((profile) => {
+    const session = getProfileSession(profile.id, profile.browserProfileDir);
+    const health = diagnosticsState.profileHealth?.[profile.id] || session.lastHealth;
+    return { id: profile.id, name: profile.name, authenticated: Boolean(health?.authenticated), lastChecked: health?.lastChecked || null, component: sessionHealthComponent(health) };
+  });
+  const defaultProfile = profiles.find((profile) => profile.id === "default");
+  const defaultSession = profileHealth.find((profile) => profile.id === "default");
+  const cloud = defaultProfile?.nuvioCloud || {};
+  const hasCloud = Boolean(cloud.token || process.env.NUVIO_CLOUD_TOKEN);
+  const cloudComponent = hasCloud
+    ? { state: "healthy", code: "configured", message: "Nuvio Cloud is connected", lastSync: cloud.lastSync || process.env.NUVIO_CLOUD_LAST_SYNC || null }
+    : { state: "healthy", code: "disabled", message: "Nuvio Cloud is not connected (optional)" };
+  const components = {
+    moviebox: defaultSession?.component || sessionHealthComponent(null),
+    tmdb: diagnosticsState.tmdb || ((process.env.TMDB_API_KEY || process.env.TMDB_BEARER_TOKEN)
+      ? { state: "unknown", code: "not_checked", message: "TMDb has not been checked yet" }
+      : { state: "error", code: "configuration", message: "TMDb API key is not configured", action: "Save a TMDb API key in the setup dashboard" }),
+    catalog: (process.env.PLUGIN_SETUP_KEY || defaultProfile?.pluginSetupKey)
+      ? { state: "healthy", code: "ok", message: "Provider and catalog manifests are ready" }
+      : { state: "error", code: "configuration", message: "Provider/catalog key is not configured", action: "Run the companion initializer or restore the configuration" },
+    nuvioCloud: cloudComponent
+  };
+  return { ...summarizeHealth(components), version: APP_VERSION, checkedAt: diagnosticsState.lastHealthCheck, uptimeSeconds: Math.floor(process.uptime()), profiles: profileHealth, components };
+}
+
 let backgroundSyncTimer;
 let sessionCheckTimer;
 
@@ -321,151 +423,6 @@ export async function checkSessionHealth(profileId = "default") {
   return session.lastHealth;
 }
 
-function rememberDiagnosticError(error, context = "") {
-  const classified = classifyError(error);
-  diagnosticsState.lastErrors.unshift({
-    timestamp: new Date().toISOString(),
-    context: context || "companion",
-    ...classified
-  });
-  if (diagnosticsState.lastErrors.length > 20) diagnosticsState.lastErrors.length = 20;
-  return classified;
-}
-
-function movieboxHealthComponent(sessionHealth) {
-  if (!sessionHealth?.lastChecked) {
-    return {
-      state: "unknown",
-      code: "not_checked",
-      message: "MovieBoxPro session has not been checked yet",
-      action: "Run a health check or check the MovieBox session"
-    };
-  }
-  if (sessionHealth.authenticated) {
-    return { state: "healthy", code: "ok", message: "MovieBoxPro session is active" };
-  }
-  const classified = classifyError({ message: sessionHealth.error || "MovieBoxPro login required" });
-  return {
-    state: sessionHealth.errorCode === "login_required" ? "warning" : "error",
-    code: sessionHealth.errorCode || classified.code,
-    message: sessionHealth.error || classified.message,
-    action: sessionHealth.action || classified.action
-  };
-}
-
-async function checkTmdbHealth() {
-  if (!process.env.TMDB_API_KEY && !process.env.TMDB_BEARER_TOKEN) {
-    return {
-      state: "error",
-      code: "configuration",
-      message: "TMDb API key is not configured",
-      action: "Save a TMDb API key in the setup dashboard"
-    };
-  }
-  try {
-    await withRetry(
-      () => withTimeout(tmdb("configuration"), 8000, "TMDb health check timed out"),
-      { retries: 1, delayMs: 200 }
-    );
-    return { state: "healthy", code: "ok", message: "TMDb API is responding" };
-  } catch (error) {
-    const classified = rememberDiagnosticError(error, "tmdb-health");
-    return {
-      state: classified.code === "network" ? "warning" : "error",
-      code: classified.code,
-      message: classified.message,
-      action: classified.action
-    };
-  }
-}
-
-function getCatalogHealth() {
-  if (!process.env.PLUGIN_SETUP_KEY) {
-    return {
-      state: "error",
-      code: "configuration",
-      message: "Provider/catalog key is not configured",
-      action: "Run the companion initializer or restore the configuration"
-    };
-  }
-  try {
-    const manifest = catalogManifest(APP_VERSION, process.env.PLUGIN_SETUP_KEY, parseCatalogConfig());
-    return manifest?.id
-      ? { state: "healthy", code: "ok", message: "Provider and catalog manifests are ready" }
-      : { state: "error", code: "upstream", message: "Catalog manifest could not be generated", action: "Run the health check again" };
-  } catch (error) {
-    const classified = rememberDiagnosticError(error, "catalog-health");
-    return { state: "error", code: classified.code, message: classified.message, action: classified.action };
-  }
-}
-
-function getCloudHealth(profiles = []) {
-  const defaultProfile = profiles.find((profile) => profile.id === "default");
-  const cloud = defaultProfile?.nuvioCloud || {};
-  const token = cloud.token || process.env.NUVIO_CLOUD_TOKEN;
-  if (!token) {
-    return { state: "healthy", code: "disabled", message: "Nuvio Cloud is not connected (optional)" };
-  }
-  const lastSync = cloud.lastSync || process.env.NUVIO_CLOUD_LAST_SYNC || null;
-  if (!lastSync) {
-    return { state: "warning", code: "not_synced", message: "Nuvio Cloud is connected but has not synced yet", action: "Run Sync Library Now" };
-  }
-  const ageMs = Date.now() - new Date(lastSync).getTime();
-  return {
-    state: Number.isFinite(ageMs) && ageMs > 36 * 60 * 60 * 1000 ? "warning" : "healthy",
-    code: Number.isFinite(ageMs) && ageMs > 36 * 60 * 60 * 1000 ? "stale" : "ok",
-    message: Number.isFinite(ageMs) && ageMs > 36 * 60 * 60 * 1000
-      ? "Nuvio Cloud sync is more than 36 hours old"
-      : "Nuvio Cloud sync is current",
-    lastSync,
-    action: "Run Sync Library Now"
-  };
-}
-
-export async function getHealthSnapshot({ refresh = false } = {}) {
-  const profiles = await getProfiles();
-  if (refresh) {
-    const sessionHealth = await Promise.all(profiles.map((profile) => checkSessionHealth(profile.id)));
-    diagnosticsState.profileHealth = Object.fromEntries(profiles.map((profile, index) => [profile.id, sessionHealth[index]]));
-    diagnosticsState.tmdbHealth = await checkTmdbHealth();
-    diagnosticsState.lastHealthCheck = new Date().toISOString();
-  }
-
-  const profileHealth = profiles.map((profile) => {
-    const sessionHealth = diagnosticsState.profileHealth?.[profile.id] || getProfileSession(profile.id, profile.browserProfileDir).lastHealth;
-    return {
-      id: profile.id,
-      name: profile.name,
-      lastChecked: sessionHealth?.lastChecked || null,
-      authenticated: Boolean(sessionHealth?.authenticated),
-      component: movieboxHealthComponent(sessionHealth)
-    };
-  });
-  const defaultProfileHealth = profileHealth.find((profile) => profile.id === "default")?.component || movieboxHealthComponent(null);
-  const components = {
-    moviebox: defaultProfileHealth,
-    tmdb: diagnosticsState.tmdbHealth || (process.env.TMDB_API_KEY || process.env.TMDB_BEARER_TOKEN
-      ? { state: "unknown", code: "not_checked", message: "TMDb has not been checked yet" }
-      : { state: "error", code: "configuration", message: "TMDb API key is not configured" }),
-    catalog: getCatalogHealth(),
-    nuvioCloud: getCloudHealth(profiles)
-  };
-  const summary = summarizeHealth(components);
-  return {
-    ...summary,
-    version: APP_VERSION,
-    checkedAt: diagnosticsState.lastHealthCheck,
-    uptimeSeconds: Math.floor(process.uptime()),
-    profiles: profileHealth,
-    components,
-    sync: diagnosticsState.cloudSync
-  };
-}
-
-export async function runHealthCheck() {
-  return getHealthSnapshot({ refresh: true });
-}
-
 export async function performAutoCloudSync() {
   const allProfiles = await getProfiles();
   let defaultResult = null;
@@ -473,13 +430,12 @@ export async function performAutoCloudSync() {
   for (const prof of allProfiles) {
     const token = prof.nuvioCloud?.token || (prof.id === "default" ? process.env.NUVIO_CLOUD_TOKEN : "");
     if (!token) continue;
-    diagnosticsState.cloudSync.lastAttempt = new Date().toISOString();
     try {
       const syncProfileId = prof.nuvioCloud?.profileId || (prof.id === "default" ? process.env.NUVIO_CLOUD_PROFILE_ID : 1) || 1;
       const syncResult = await syncNuvioCloudLibrary({
         accessToken: token,
         profileId: syncProfileId,
-        cloudUrl: process.env.NUVIO_CLOUD_URL
+        cloudUrl: prof.nuvioCloud?.cloudUrl || process.env.NUVIO_CLOUD_URL
       });
 
       if (prof.id === "default") {
@@ -497,17 +453,12 @@ export async function performAutoCloudSync() {
         nuvioCloud: {
           ...(prof.nuvioCloud || {}),
           connected: true,
-          lastSync: syncResult.syncedAt
+          lastSync: syncResult.syncedAt,
+          cloudUrl: prof.nuvioCloud?.cloudUrl || process.env.NUVIO_CLOUD_URL || ""
         }
       });
-      diagnosticsState.cloudSync.lastSuccess = syncResult.syncedAt;
-      diagnosticsState.cloudSync.lastFailure = null;
-      diagnosticsState.cloudSync.consecutiveFailures = 0;
       console.log(`[AutoSync] Background synced ${syncResult.itemCount} items for profile "${prof.name}" at ${syncResult.syncedAt}`);
     } catch (err) {
-      diagnosticsState.cloudSync.lastFailure = new Date().toISOString();
-      diagnosticsState.cloudSync.consecutiveFailures++;
-      rememberDiagnosticError(err, `nuvio-cloud-sync:${prof.id}`);
       console.warn(`[AutoSync] Background sync error for profile "${prof.name}": ${err.message}`);
     }
   }
@@ -529,7 +480,7 @@ export function startBackgroundJobs() {
     if (process.env.COMPANION_KEY) {
       getProfiles()
         .then((profiles) => Promise.all(profiles.map((profile) => checkSessionHealth(profile.id))))
-        .catch((error) => rememberDiagnosticError(error, "scheduled-health-check"));
+        .catch(() => {});
     }
   }, 60 * 60 * 1000);
   sessionCheckTimer.unref();
@@ -744,6 +695,22 @@ async function resolveStreams({ tmdbId, mediaType, season, episode, episodeTitle
   return streams.map(({ _meta, ...stream }) => stream);
 }
 
+async function enrichStreamSegments(params, streams) {
+  if (params.mediaType !== "tv" || !Array.isArray(streams) || !streams.length) return streams;
+  try {
+    const imdbId = /^tt\d+$/i.test(params.tmdbId)
+      ? params.tmdbId
+      : await resolveImdbIdForShow(params.tmdbId, process.env.TMDB_API_KEY, fetch);
+    if (imdbId) {
+      const segments = await fetchIntroSegments({ imdbId, season: params.season, episode: params.episode }, fetch);
+      if (segments) return attachIntroSegmentsToStreams(streams, segments);
+    }
+  } catch (introError) {
+    console.warn(`[companion] IntroDB segment lookup failed: ${introError.message}`);
+  }
+  return streams;
+}
+
 function sendJson(res, status, data) {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
@@ -761,6 +728,30 @@ function sendJavaScript(res, source) {
     "Access-Control-Allow-Origin": "*"
   });
   res.end(source);
+}
+
+function parseStremioMediaRequest(type, rawId) {
+  const parts = String(rawId || "").split(":");
+  let baseId;
+  let season;
+  let episode;
+
+  if (type === "series") {
+    if (parts.length === 3) {
+      [baseId, season, episode] = parts;
+    } else if (parts.length === 4 && /^(?:tmdb|imdb)$/i.test(parts[0])) {
+      [, baseId, season, episode] = parts;
+    } else {
+      return null;
+    }
+    if (!/^tt\d+$/i.test(baseId) && !/^\d+$/.test(baseId)) return null;
+    if (!/^\d+$/.test(season) || !/^\d+$/.test(episode)) return null;
+    return { tmdbId: baseId, mediaType: "tv", season, episode };
+  }
+
+  baseId = parts.length === 1 ? parts[0] : parts.length === 2 && /^(?:tmdb|imdb)$/i.test(parts[0]) ? parts[1] : "";
+  if (!/^tt\d+$/i.test(baseId) && !/^\d+$/.test(baseId)) return null;
+  return { tmdbId: baseId, mediaType: "movie", season: null, episode: null };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -813,7 +804,8 @@ const server = http.createServer(async (req, res) => {
             seedCount: (p.recommendationSeeds?.length || 0) + (p.movieRecommendationSeeds?.length || 0),
             nuvioCloudConnected: Boolean(p.nuvioCloud?.connected),
             pluginUrl: privateRepositoryUrl(publicUrl(), p.pluginSetupKey),
-            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(p.pluginSetupKey)}/manifest.json`
+            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(p.pluginSetupKey)}/manifest.json`,
+            stremioUrl: stremioAddonUrl(publicUrl(), p.pluginSetupKey)
           })),
           nuvioCloud: {
             connected: Boolean(process.env.NUVIO_CLOUD_TOKEN || process.env.NUVIO_CLOUD_EMAIL),
@@ -835,7 +827,8 @@ const server = http.createServer(async (req, res) => {
             ...p,
             catalogsConfig: parseCatalogConfig(p.catalogsConfig),
             pluginUrl: privateRepositoryUrl(publicUrl(), p.pluginSetupKey),
-            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(p.pluginSetupKey)}/manifest.json`
+            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(p.pluginSetupKey)}/manifest.json`,
+            stremioUrl: stremioAddonUrl(publicUrl(), p.pluginSetupKey)
           }))
         });
       }
@@ -849,7 +842,8 @@ const server = http.createServer(async (req, res) => {
             ...created,
             catalogsConfig: parseCatalogConfig(created.catalogsConfig),
             pluginUrl: privateRepositoryUrl(publicUrl(), created.pluginSetupKey),
-            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(created.pluginSetupKey)}/manifest.json`
+            catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(created.pluginSetupKey)}/manifest.json`,
+            stremioUrl: stremioAddonUrl(publicUrl(), created.pluginSetupKey)
           }
         });
       }
@@ -867,7 +861,8 @@ const server = http.createServer(async (req, res) => {
               ...profile,
               catalogsConfig: parseCatalogConfig(profile.catalogsConfig),
               pluginUrl: privateRepositoryUrl(publicUrl(), profile.pluginSetupKey),
-              catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(profile.pluginSetupKey)}/manifest.json`
+              catalogUrl: `${publicUrl()}/catalog/${encodeURIComponent(profile.pluginSetupKey)}/manifest.json`,
+              stremioUrl: stremioAddonUrl(publicUrl(), profile.pluginSetupKey)
             }
           });
         }
@@ -953,12 +948,12 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, await serializeBrowserWork(browserSessionStatus));
       }
 
-      if (url.pathname === "/api/setup/health" && req.method === "GET") {
-        return sendJson(res, 200, await getHealthSnapshot());
+      if ((url.pathname === "/api/setup/health" || url.pathname === "/api/setup/status") && req.method === "GET") {
+        return sendJson(res, 200, await getHealthSnapshot(false));
       }
 
       if (url.pathname === "/api/setup/health-check" && req.method === "POST") {
-        return sendJson(res, 200, await runHealthCheck());
+        return sendJson(res, 200, await getHealthSnapshot(true));
       }
 
       if (url.pathname === "/api/setup/diagnostics" && req.method === "GET") {
@@ -966,9 +961,8 @@ const server = http.createServer(async (req, res) => {
           version: APP_VERSION,
           startedAt: serviceStartedAt,
           uptimeSeconds: Math.floor(process.uptime()),
-          health: await getHealthSnapshot(),
+          health: await getHealthSnapshot(false),
           lastErrors: diagnosticsState.lastErrors,
-          cloudSync: diagnosticsState.cloudSync,
           analytics: getAnalyticsSummary()
         });
       }
@@ -1005,15 +999,21 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (url.pathname === "/api/setup/plugin-url" && req.method === "GET") {
-        if (!process.env.PLUGIN_SETUP_KEY) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
-        return sendJson(res, 200, {
-          url: privateRepositoryUrl(publicUrl(), process.env.PLUGIN_SETUP_KEY)
-        });
+        const profile = await getProfileById(url.searchParams.get("profileId") || "default");
+        if (!profile?.pluginSetupKey) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
+        return sendJson(res, 200, { url: privateRepositoryUrl(publicUrl(), profile.pluginSetupKey) });
       }
 
       if (url.pathname === "/api/setup/catalog-url" && req.method === "GET") {
-        if (!process.env.PLUGIN_SETUP_KEY) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
-        return sendJson(res, 200, { url: `${publicUrl()}/catalog/${encodeURIComponent(process.env.PLUGIN_SETUP_KEY)}/manifest.json` });
+        const profile = await getProfileById(url.searchParams.get("profileId") || "default");
+        if (!profile?.pluginSetupKey) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
+        return sendJson(res, 200, { url: `${publicUrl()}/catalog/${encodeURIComponent(profile.pluginSetupKey)}/manifest.json` });
+      }
+
+      if (url.pathname === "/api/setup/stremio-url" && req.method === "GET") {
+        const profile = await getProfileById(url.searchParams.get("profileId") || "default");
+        if (!profile?.pluginSetupKey) return sendJson(res, 409, { error: "PLUGIN_SETUP_KEY is not configured" });
+        return sendJson(res, 200, { url: stremioAddonUrl(publicUrl(), profile.pluginSetupKey) });
       }
 
       // Nuvio Cloud Login
@@ -1023,14 +1023,17 @@ const server = http.createServer(async (req, res) => {
         const { email, password, cloudUrl, profileId: companionProfileId } = body;
         if (!email || !password) return sendJson(res, 400, { error: "Email and password are required" });
 
-        const auth = await loginNuvioCloud(email, password, cloudUrl);
-        const profiles = await fetchNuvioProfiles(auth.accessToken, cloudUrl);
+        const requestedCloudUrl = typeof cloudUrl === "string" && cloudUrl.trim()
+          ? cloudUrl.trim()
+          : (process.env.NUVIO_CLOUD_URL || "");
+        const auth = await loginNuvioCloud(email, password, requestedCloudUrl);
+        const profiles = await fetchNuvioProfiles(auth.accessToken, requestedCloudUrl);
         const activeCloudProfile = profiles[0] || { id: 1, name: "Default Profile" };
 
         const syncResult = await syncNuvioCloudLibrary({
           accessToken: auth.accessToken,
           profileId: activeCloudProfile.id,
-          cloudUrl
+          cloudUrl: requestedCloudUrl
         });
 
         const targetCompanionId = companionProfileId ? String(companionProfileId).toLowerCase().trim() : "default";
@@ -1042,6 +1045,7 @@ const server = http.createServer(async (req, res) => {
             NUVIO_CLOUD_PROFILE_ID: String(activeCloudProfile.id),
             NUVIO_CLOUD_PROFILE_NAME: activeCloudProfile.name,
             NUVIO_CLOUD_LAST_SYNC: syncResult.syncedAt,
+            NUVIO_CLOUD_URL: requestedCloudUrl,
             RECOMMENDATION_SEEDS: JSON.stringify(syncResult.seriesSeeds),
             MOVIE_RECOMMENDATION_SEEDS: JSON.stringify(syncResult.movieSeeds)
           });
@@ -1056,7 +1060,8 @@ const server = http.createServer(async (req, res) => {
             token: auth.accessToken,
             profileId: String(activeCloudProfile.id),
             profileName: activeCloudProfile.name,
-            lastSync: syncResult.syncedAt
+            lastSync: syncResult.syncedAt,
+            cloudUrl: requestedCloudUrl
           }
         });
 
@@ -1087,7 +1092,7 @@ const server = http.createServer(async (req, res) => {
         const syncResult = await syncNuvioCloudLibrary({
           accessToken: token,
           profileId: cloudProfileId,
-          cloudUrl: process.env.NUVIO_CLOUD_URL
+          cloudUrl: targetProfile?.nuvioCloud?.cloudUrl || process.env.NUVIO_CLOUD_URL
         });
 
         if (targetCompanionId === "default") {
@@ -1124,7 +1129,8 @@ const server = http.createServer(async (req, res) => {
             NUVIO_CLOUD_TOKEN: "",
             NUVIO_CLOUD_PROFILE_ID: "",
             NUVIO_CLOUD_PROFILE_NAME: "",
-            NUVIO_CLOUD_LAST_SYNC: ""
+            NUVIO_CLOUD_LAST_SYNC: "",
+            NUVIO_CLOUD_URL: ""
           });
         }
 
@@ -1135,7 +1141,8 @@ const server = http.createServer(async (req, res) => {
             token: "",
             profileId: "1",
             profileName: "Default Profile",
-            lastSync: null
+            lastSync: null,
+            cloudUrl: ""
           }
         });
 
@@ -1276,6 +1283,58 @@ const server = http.createServer(async (req, res) => {
       }
       if (catalogRequest.metaId) {
         return sendJson(res, 200, { meta: await loadMeta(catalogRequest.metaId, fetch, catalogRequest.mediaType) });
+      }
+    }
+
+    // 4. Standard Stremio adapter for AIOStreams and other Stremio clients
+    const stremioRequest = matchStremioPath(url.pathname);
+    if (stremioRequest && req.method === "GET") {
+      const stremioProfile = await profileForKey(stremioRequest.key);
+      if (!stremioProfile) return sendJson(res, 401, { error: "Unauthorized" });
+      if (stremioRequest.resource === "manifest.json") {
+        return sendJson(res, 200, stremioManifest(APP_VERSION));
+      }
+
+      const params = parseStremioMediaRequest(stremioRequest.type, stremioRequest.id);
+      if (!params) return sendJson(res, 400, { error: "Invalid Stremio media ID" });
+      requireConfig(stremioProfile);
+
+      const startTime = Date.now();
+      const session = getProfileSession(stremioProfile.id, stremioProfile.browserProfileDir);
+      try {
+        const streams = await withTimeout(
+          serializeBrowserWork(() => resolveStreams(params, stremioProfile.id), session),
+          Number(process.env.STREAM_TIMEOUT_MS || 45000),
+          "Stream lookup timed out"
+        );
+        const enrichedStreams = await enrichStreamSegments(params, streams);
+        recordStreamActivity({
+          profileId: stremioProfile.id,
+          profileName: stremioProfile.name,
+          tmdbId: params.tmdbId,
+          mediaType: params.mediaType,
+          season: params.season,
+          episode: params.episode,
+          streamCount: enrichedStreams.length,
+          durationMs: Date.now() - startTime,
+          success: true,
+          error: null
+        });
+        return sendJson(res, 200, { streams: formatStreamsForClient(enrichedStreams, stremioProfile, "stremio") });
+      } catch (streamError) {
+        recordStreamActivity({
+          profileId: stremioProfile.id,
+          profileName: stremioProfile.name,
+          tmdbId: params.tmdbId,
+          mediaType: params.mediaType,
+          season: params.season,
+          episode: params.episode,
+          streamCount: 0,
+          durationMs: Date.now() - startTime,
+          success: false,
+          error: streamError.message
+        });
+        throw streamError;
       }
     }
 
@@ -1437,10 +1496,11 @@ self.addEventListener('fetch', (e) => {
     }
 
     // 6. IntroDB Skip Intro Segments API
-    if (url.pathname === "/intro" || url.pathname === "/api/introdb/segments") {
-      const rawTmdbId = String(url.searchParams.get("tmdbId") || url.searchParams.get("imdb_id") || url.searchParams.get("imdbId") || "");
-      const season = url.searchParams.get("season");
-      const episode = url.searchParams.get("episode");
+    const introPathMatch = url.pathname.match(/^\/intro\/(tt\d+|\d+)\/(\d+)\/(\d+)\/?$/i);
+    if (url.pathname === "/intro" || url.pathname === "/api/introdb/segments" || introPathMatch) {
+      const rawTmdbId = introPathMatch?.[1] || String(url.searchParams.get("tmdbId") || url.searchParams.get("imdb_id") || url.searchParams.get("imdbId") || "");
+      const season = introPathMatch?.[2] || url.searchParams.get("season");
+      const episode = introPathMatch?.[3] || url.searchParams.get("episode");
       if (!rawTmdbId || !season || !episode) return sendJson(res, 400, { error: "Missing imdb_id/tmdbId, season, or episode" });
       const imdbId = /^tt\d+$/i.test(rawTmdbId) ? rawTmdbId.toLowerCase() : await resolveImdbIdForShow(rawTmdbId, process.env.TMDB_API_KEY, fetch);
       if (!imdbId) return sendJson(res, 404, { error: "Could not resolve IMDb ID for this title" });
@@ -1516,26 +1576,11 @@ self.addEventListener('fetch', (e) => {
       throw streamError;
     }
 
-    // Enrich TV series streams with IntroDB skip segments (intro, outro, recap)
-    if (params.mediaType === "tv" && Array.isArray(resolvedStreams) && resolvedStreams.length) {
-      try {
-        const imdbId = /^tt\d+$/i.test(params.tmdbId) ? params.tmdbId : await resolveImdbIdForShow(params.tmdbId, process.env.TMDB_API_KEY, fetch);
-        if (imdbId) {
-          const segments = await fetchIntroSegments({ imdbId, season: params.season, episode: params.episode }, fetch);
-          if (segments) {
-            return sendJson(res, 200, attachIntroSegmentsToStreams(resolvedStreams, segments));
-          }
-        }
-      } catch (introError) {
-        console.warn(`[companion] IntroDB segment lookup failed: ${introError.message}`);
-      }
-    }
-
-    return sendJson(res, 200, resolvedStreams);
+    const enrichedStreams = await enrichStreamSegments(params, resolvedStreams);
+    return sendJson(res, 200, formatStreamsForClient(enrichedStreams, activeProfile));
   } catch (error) {
-    const classified = rememberDiagnosticError(error, `${req.method} ${req.url}`);
-    console.error(`[companion] ${classified.message}`);
-    return sendJson(res, 502, { error: classified.message, code: classified.code, action: classified.action });
+    console.error(`[companion] ${error.message}`);
+    return sendJson(res, 502, { error: error.message });
   }
 });
 

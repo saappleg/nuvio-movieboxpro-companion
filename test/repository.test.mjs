@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { matchPrivateRepositoryPath, privateRepositoryUrl, repositoryManifest } from "../src/repository.mjs";
+import {
+  matchPrivateRepositoryPath,
+  matchStremioPath,
+  privateRepositoryUrl,
+  repositoryManifest,
+  stremioAddonUrl,
+  stremioManifest
+} from "../src/repository.mjs";
 
 const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const APP_VERSION = String(packageMetadata.version);
@@ -30,4 +37,26 @@ test("uses a relative provider filename for path-authenticated repositories matc
 test("keeps legacy query-authenticated manifests compatible", () => {
   const manifest = repositoryManifest(APP_VERSION, "private-key", false);
   assert.equal(manifest.scrapers[0].filename, "providers/movieboxpro-local.js?key=private-key");
+});
+
+test("builds a key-protected Stremio adapter URL and routes", () => {
+  const url = stremioAddonUrl("http://192.0.2.10:43110/", "private key");
+  assert.equal(url, "http://192.0.2.10:43110/stremio/private%20key/manifest.json");
+  assert.deepEqual(matchStremioPath(new URL(url).pathname), {
+    key: "private key",
+    resource: "manifest.json"
+  });
+  assert.deepEqual(matchStremioPath("/stremio/private%20key/stream/series/tt1234567%3A2%3A3.json"), {
+    key: "private key",
+    resource: "stream",
+    type: "series",
+    id: "tt1234567:2:3"
+  });
+});
+
+test("exposes a standard stream-only Stremio manifest", () => {
+  const manifest = stremioManifest(APP_VERSION);
+  assert.equal(manifest.version, APP_VERSION);
+  assert.deepEqual(manifest.resources, ["stream"]);
+  assert.deepEqual(manifest.types, ["movie", "series"]);
 });

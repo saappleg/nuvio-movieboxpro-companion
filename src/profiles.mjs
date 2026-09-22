@@ -2,7 +2,13 @@ import crypto from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
-const PROFILES_FILE = path.resolve(process.env.COMPANION_PROFILES_FILE || "work/profiles.json");
+function getProfilesFile() {
+  return path.resolve(process.env.COMPANION_PROFILES_FILE || "work/profiles.json");
+}
+
+function getProfileStorageDir() {
+  return path.dirname(getProfilesFile());
+}
 
 function generateSecureKey(prefix = "mbp") {
   return `${prefix}_${crypto.randomBytes(16).toString("hex")}`;
@@ -37,13 +43,17 @@ function syncDefaultProfileWithEnv(defaultProf) {
   }
   if (process.env.NUVIO_CLOUD_TOKEN || process.env.NUVIO_CLOUD_EMAIL) {
     defaultProf.nuvioCloud = {
+      ...(defaultProf.nuvioCloud || {}),
       connected: Boolean(process.env.NUVIO_CLOUD_TOKEN || process.env.NUVIO_CLOUD_EMAIL),
       email: process.env.NUVIO_CLOUD_EMAIL || "",
       token: process.env.NUVIO_CLOUD_TOKEN || "",
       profileId: process.env.NUVIO_CLOUD_PROFILE_ID || "1",
       profileName: process.env.NUVIO_CLOUD_PROFILE_NAME || "Default Profile",
-      lastSync: process.env.NUVIO_CLOUD_LAST_SYNC || null
+      lastSync: process.env.NUVIO_CLOUD_LAST_SYNC || null,
+      cloudUrl: process.env.NUVIO_CLOUD_URL || defaultProf.nuvioCloud?.cloudUrl || ""
     };
+  } else if (process.env.NUVIO_CLOUD_URL !== undefined && defaultProf.nuvioCloud) {
+    defaultProf.nuvioCloud.cloudUrl = process.env.NUVIO_CLOUD_URL || "";
   }
 }
 
@@ -54,7 +64,7 @@ export async function loadProfiles() {
   }
 
   try {
-    const text = await readFile(PROFILES_FILE, "utf8");
+    const text = await readFile(getProfilesFile(), "utf8");
     const parsed = JSON.parse(text);
     if (Array.isArray(parsed) && parsed.length) {
       cachedProfiles = parsed;
@@ -80,7 +90,8 @@ export async function loadProfiles() {
       token: process.env.NUVIO_CLOUD_TOKEN || "",
       profileId: process.env.NUVIO_CLOUD_PROFILE_ID || "1",
       profileName: process.env.NUVIO_CLOUD_PROFILE_NAME || "Default Profile",
-      lastSync: process.env.NUVIO_CLOUD_LAST_SYNC || null
+      lastSync: process.env.NUVIO_CLOUD_LAST_SYNC || null,
+      cloudUrl: process.env.NUVIO_CLOUD_URL || ""
     },
     createdAt: new Date().toISOString()
   };
@@ -92,8 +103,8 @@ export async function loadProfiles() {
 
 export async function saveProfiles(profiles) {
   cachedProfiles = Array.isArray(profiles) ? profiles : [];
-  await mkdir(path.dirname(PROFILES_FILE), { recursive: true });
-  await writeFile(PROFILES_FILE, JSON.stringify(cachedProfiles, null, 2), "utf8");
+  await mkdir(getProfileStorageDir(), { recursive: true });
+  await writeFile(getProfilesFile(), JSON.stringify(cachedProfiles, null, 2), "utf8");
   return cachedProfiles;
 }
 
@@ -137,7 +148,7 @@ export async function createProfile({ name, userTimezone = "" }) {
     slug = `${slugify(rawName)}-${++counter}`;
   }
 
-  const profileDir = path.resolve(`work/movieboxpro-profile-${slug}`);
+  const profileDir = path.join(getProfileStorageDir(), `movieboxpro-profile-${slug}`);
   const newProfile = {
     id: slug,
     name: rawName,
@@ -154,7 +165,8 @@ export async function createProfile({ name, userTimezone = "" }) {
       token: "",
       profileId: "1",
       profileName: "Default Profile",
-      lastSync: null
+      lastSync: null,
+      cloudUrl: ""
     },
     createdAt: new Date().toISOString()
   };

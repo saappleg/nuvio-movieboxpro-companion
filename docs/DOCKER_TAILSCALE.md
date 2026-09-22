@@ -80,7 +80,7 @@ docker compose -f docker-compose.ghcr.yml up -d
 docker compose -f docker-compose.ghcr.yml ps
 ```
 
-The package supports AMD64 and ARM64 Linux hosts. To pin a tested release instead of following `latest`, add `COMPANION_VERSION=1.0.0-beta.9` to `.env`.
+The package supports AMD64 and ARM64 Linux hosts. To pin a tested release instead of following `latest`, add `COMPANION_VERSION=1.0.0-beta.13` to `.env`.
 
 The named Docker volume `companion-data` preserves the Chromium profile across container replacement and restarts.
 

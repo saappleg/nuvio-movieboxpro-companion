@@ -2,6 +2,10 @@ export function privateRepositoryUrl(baseUrl, key) {
   return `${String(baseUrl).replace(/\/$/, "")}/repository/${encodeURIComponent(key)}/manifest.json`;
 }
 
+export function stremioAddonUrl(baseUrl, key) {
+  return `${String(baseUrl).replace(/\/$/, "")}/stremio/${encodeURIComponent(key)}/manifest.json`;
+}
+
 export function matchPrivateRepositoryPath(pathname) {
   const cleanPath = String(pathname || "").split("?")[0].replace(/\/+$/, "");
   const match = cleanPath.match(/^\/repository\/([^/]+)(?:\/(manifest\.json|providers\/movieboxpro-local\.js))?$/);
@@ -28,5 +32,42 @@ export function repositoryManifest(version, key, pathAuthenticated = true) {
       contentLanguage: ["en"],
       disabledPlatforms: []
     }]
+  };
+}
+
+export function matchStremioPath(pathname) {
+  const cleanPath = String(pathname || "").split("?")[0].replace(/\/+$/, "");
+  const manifestMatch = cleanPath.match(/^\/stremio\/([^/]+)\/manifest\.json$/i);
+  if (manifestMatch) {
+    try {
+      return { key: decodeURIComponent(manifestMatch[1]), resource: "manifest.json" };
+    } catch {
+      return undefined;
+    }
+  }
+
+  const streamMatch = cleanPath.match(/^\/stremio\/([^/]+)\/stream\/(movie|series)\/([^/]+)\.json$/i);
+  if (!streamMatch) return undefined;
+  try {
+    return {
+      key: decodeURIComponent(streamMatch[1]),
+      resource: "stream",
+      type: streamMatch[2].toLowerCase(),
+      id: decodeURIComponent(streamMatch[3])
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function stremioManifest(version) {
+  return {
+    id: "community.nuvio.movieboxpro.companion",
+    version,
+    name: "MovieBoxPro Companion",
+    description: "MovieBoxPro streams through a private companion service",
+    resources: ["stream"],
+    types: ["movie", "series"],
+    idPrefixes: ["tt", "tmdb:", "tmdb", "imdb:"]
   };
 }
