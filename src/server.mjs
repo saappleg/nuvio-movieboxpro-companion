@@ -17,6 +17,7 @@ import {
   streamsFromPlayer
 } from "./parsers.mjs";
 import {
+  tmdb,
   catalogManifest,
   loadCatalog,
   loadMeta,
@@ -49,6 +50,8 @@ import {
   fetchIntroSegments,
   attachIntroSegmentsToStreams
 } from "./introdb.mjs";
+import { serializeBrowserWork as enqueueBrowserWork } from "./browser-work.mjs";
+import { classifyError, summarizeHealth, withRetry } from "./reliability.mjs";
 
 const packageMetadata = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const APP_VERSION = String(packageMetadata.version);
@@ -91,6 +94,18 @@ const BASE = "https://www.movieboxpro.app";
 const PROFILE_DIR = path.resolve(process.env.MOVIEBOXPRO_PROFILE || "work/movieboxpro-profile");
 
 const profileSessions = new Map();
+
+const serviceStartedAt = new Date().toISOString();
+const diagnosticsState = {
+  lastHealthCheck: null,
+  lastErrors: [],
+  cloudSync: {
+    lastAttempt: null,
+    lastSuccess: null,
+    lastFailure: null,
+    consecutiveFailures: 0
+  }
+};
 
 export function getProfileSession(profileId = "default", customProfileDir = null) {
   const cleanId = String(profileId || "").toLowerCase().trim() || "default";
@@ -243,9 +258,7 @@ function withTimeout(promise, milliseconds, message) {
 }
 
 function serializeBrowserWork(task, session = getProfileSession("default")) {
-  const work = session.browserWorkQueue.then(task, task);
-  session.browserWorkQueue = work.catch(() => {});
-  return work;
+  return enqueueBrowserWork(task, session);
 }
 
 async function openLoginWindow(profileId = "default") {
@@ -276,7 +289,8 @@ async function browserSessionStatus(profileId = "default") {
   session.lastHealth = {
     authenticated: Boolean(result?.authenticated),
     lastChecked: new Date().toISOString(),
-    error: null
+    error: result?.authenticated ? null : "MovieBoxPro login required",
+    errorCode: result?.authenticated ? null : "login_required"
   };
   return result;
 }
@@ -291,16 +305,165 @@ export async function checkSessionHealth(profileId = "default") {
     session.lastHealth = {
       authenticated: Boolean(status?.authenticated),
       lastChecked: new Date().toISOString(),
-      error: null
+      error: status?.authenticated ? null : "MovieBoxPro login required",
+      errorCode: status?.authenticated ? null : "login_required"
     };
   } catch (err) {
+    const classified = classifyError(err);
     session.lastHealth = {
       authenticated: false,
       lastChecked: new Date().toISOString(),
-      error: err.message
+      error: err.message,
+      errorCode: classified.code,
+      action: classified.action
     };
   }
   return session.lastHealth;
+}
+
+function rememberDiagnosticError(error, context = "") {
+  const classified = classifyError(error);
+  diagnosticsState.lastErrors.unshift({
+    timestamp: new Date().toISOString(),
+    context: context || "companion",
+    ...classified
+  });
+  if (diagnosticsState.lastErrors.length > 20) diagnosticsState.lastErrors.length = 20;
+  return classified;
+}
+
+function movieboxHealthComponent(sessionHealth) {
+  if (!sessionHealth?.lastChecked) {
+    return {
+      state: "unknown",
+      code: "not_checked",
+      message: "MovieBoxPro session has not been checked yet",
+      action: "Run a health check or check the MovieBox session"
+    };
+  }
+  if (sessionHealth.authenticated) {
+    return { state: "healthy", code: "ok", message: "MovieBoxPro session is active" };
+  }
+  const classified = classifyError({ message: sessionHealth.error || "MovieBoxPro login required" });
+  return {
+    state: sessionHealth.errorCode === "login_required" ? "warning" : "error",
+    code: sessionHealth.errorCode || classified.code,
+    message: sessionHealth.error || classified.message,
+    action: sessionHealth.action || classified.action
+  };
+}
+
+async function checkTmdbHealth() {
+  if (!process.env.TMDB_API_KEY && !process.env.TMDB_BEARER_TOKEN) {
+    return {
+      state: "error",
+      code: "configuration",
+      message: "TMDb API key is not configured",
+      action: "Save a TMDb API key in the setup dashboard"
+    };
+  }
+  try {
+    await withRetry(
+      () => withTimeout(tmdb("configuration"), 8000, "TMDb health check timed out"),
+      { retries: 1, delayMs: 200 }
+    );
+    return { state: "healthy", code: "ok", message: "TMDb API is responding" };
+  } catch (error) {
+    const classified = rememberDiagnosticError(error, "tmdb-health");
+    return {
+      state: classified.code === "network" ? "warning" : "error",
+      code: classified.code,
+      message: classified.message,
+      action: classified.action
+    };
+  }
+}
+
+function getCatalogHealth() {
+  if (!process.env.PLUGIN_SETUP_KEY) {
+    return {
+      state: "error",
+      code: "configuration",
+      message: "Provider/catalog key is not configured",
+      action: "Run the companion initializer or restore the configuration"
+    };
+  }
+  try {
+    const manifest = catalogManifest(APP_VERSION, process.env.PLUGIN_SETUP_KEY, parseCatalogConfig());
+    return manifest?.id
+      ? { state: "healthy", code: "ok", message: "Provider and catalog manifests are ready" }
+      : { state: "error", code: "upstream", message: "Catalog manifest could not be generated", action: "Run the health check again" };
+  } catch (error) {
+    const classified = rememberDiagnosticError(error, "catalog-health");
+    return { state: "error", code: classified.code, message: classified.message, action: classified.action };
+  }
+}
+
+function getCloudHealth(profiles = []) {
+  const defaultProfile = profiles.find((profile) => profile.id === "default");
+  const cloud = defaultProfile?.nuvioCloud || {};
+  const token = cloud.token || process.env.NUVIO_CLOUD_TOKEN;
+  if (!token) {
+    return { state: "healthy", code: "disabled", message: "Nuvio Cloud is not connected (optional)" };
+  }
+  const lastSync = cloud.lastSync || process.env.NUVIO_CLOUD_LAST_SYNC || null;
+  if (!lastSync) {
+    return { state: "warning", code: "not_synced", message: "Nuvio Cloud is connected but has not synced yet", action: "Run Sync Library Now" };
+  }
+  const ageMs = Date.now() - new Date(lastSync).getTime();
+  return {
+    state: Number.isFinite(ageMs) && ageMs > 36 * 60 * 60 * 1000 ? "warning" : "healthy",
+    code: Number.isFinite(ageMs) && ageMs > 36 * 60 * 60 * 1000 ? "stale" : "ok",
+    message: Number.isFinite(ageMs) && ageMs > 36 * 60 * 60 * 1000
+      ? "Nuvio Cloud sync is more than 36 hours old"
+      : "Nuvio Cloud sync is current",
+    lastSync,
+    action: "Run Sync Library Now"
+  };
+}
+
+export async function getHealthSnapshot({ refresh = false } = {}) {
+  const profiles = await getProfiles();
+  if (refresh) {
+    const sessionHealth = await Promise.all(profiles.map((profile) => checkSessionHealth(profile.id)));
+    diagnosticsState.profileHealth = Object.fromEntries(profiles.map((profile, index) => [profile.id, sessionHealth[index]]));
+    diagnosticsState.tmdbHealth = await checkTmdbHealth();
+    diagnosticsState.lastHealthCheck = new Date().toISOString();
+  }
+
+  const profileHealth = profiles.map((profile) => {
+    const sessionHealth = diagnosticsState.profileHealth?.[profile.id] || getProfileSession(profile.id, profile.browserProfileDir).lastHealth;
+    return {
+      id: profile.id,
+      name: profile.name,
+      lastChecked: sessionHealth?.lastChecked || null,
+      authenticated: Boolean(sessionHealth?.authenticated),
+      component: movieboxHealthComponent(sessionHealth)
+    };
+  });
+  const defaultProfileHealth = profileHealth.find((profile) => profile.id === "default")?.component || movieboxHealthComponent(null);
+  const components = {
+    moviebox: defaultProfileHealth,
+    tmdb: diagnosticsState.tmdbHealth || (process.env.TMDB_API_KEY || process.env.TMDB_BEARER_TOKEN
+      ? { state: "unknown", code: "not_checked", message: "TMDb has not been checked yet" }
+      : { state: "error", code: "configuration", message: "TMDb API key is not configured" }),
+    catalog: getCatalogHealth(),
+    nuvioCloud: getCloudHealth(profiles)
+  };
+  const summary = summarizeHealth(components);
+  return {
+    ...summary,
+    version: APP_VERSION,
+    checkedAt: diagnosticsState.lastHealthCheck,
+    uptimeSeconds: Math.floor(process.uptime()),
+    profiles: profileHealth,
+    components,
+    sync: diagnosticsState.cloudSync
+  };
+}
+
+export async function runHealthCheck() {
+  return getHealthSnapshot({ refresh: true });
 }
 
 export async function performAutoCloudSync() {
@@ -310,6 +473,7 @@ export async function performAutoCloudSync() {
   for (const prof of allProfiles) {
     const token = prof.nuvioCloud?.token || (prof.id === "default" ? process.env.NUVIO_CLOUD_TOKEN : "");
     if (!token) continue;
+    diagnosticsState.cloudSync.lastAttempt = new Date().toISOString();
     try {
       const syncProfileId = prof.nuvioCloud?.profileId || (prof.id === "default" ? process.env.NUVIO_CLOUD_PROFILE_ID : 1) || 1;
       const syncResult = await syncNuvioCloudLibrary({
@@ -336,8 +500,14 @@ export async function performAutoCloudSync() {
           lastSync: syncResult.syncedAt
         }
       });
+      diagnosticsState.cloudSync.lastSuccess = syncResult.syncedAt;
+      diagnosticsState.cloudSync.lastFailure = null;
+      diagnosticsState.cloudSync.consecutiveFailures = 0;
       console.log(`[AutoSync] Background synced ${syncResult.itemCount} items for profile "${prof.name}" at ${syncResult.syncedAt}`);
     } catch (err) {
+      diagnosticsState.cloudSync.lastFailure = new Date().toISOString();
+      diagnosticsState.cloudSync.consecutiveFailures++;
+      rememberDiagnosticError(err, `nuvio-cloud-sync:${prof.id}`);
       console.warn(`[AutoSync] Background sync error for profile "${prof.name}": ${err.message}`);
     }
   }
@@ -357,7 +527,9 @@ export function startBackgroundJobs() {
   // Periodic Session Health Check every 60 minutes
   sessionCheckTimer = setInterval(() => {
     if (process.env.COMPANION_KEY) {
-      checkSessionHealth("default").catch(() => {});
+      getProfiles()
+        .then((profiles) => Promise.all(profiles.map((profile) => checkSessionHealth(profile.id))))
+        .catch((error) => rememberDiagnosticError(error, "scheduled-health-check"));
     }
   }, 60 * 60 * 1000);
   sessionCheckTimer.unref();
@@ -782,26 +954,22 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (url.pathname === "/api/setup/health" && req.method === "GET") {
-        const defaultSession = getProfileSession("default");
-        const tmdbOk = Boolean(process.env.TMDB_API_KEY || process.env.TMDB_BEARER_TOKEN);
-        const cloudOk = Boolean(process.env.NUVIO_CLOUD_TOKEN);
-        const mbpOk = Boolean(defaultSession.lastHealth?.authenticated);
-        const status = tmdbOk && mbpOk ? "healthy" : (tmdbOk ? "warning" : "error");
+        return sendJson(res, 200, await getHealthSnapshot());
+      }
 
+      if (url.pathname === "/api/setup/health-check" && req.method === "POST") {
+        return sendJson(res, 200, await runHealthCheck());
+      }
+
+      if (url.pathname === "/api/setup/diagnostics" && req.method === "GET") {
         return sendJson(res, 200, {
-          status,
+          version: APP_VERSION,
+          startedAt: serviceStartedAt,
           uptimeSeconds: Math.floor(process.uptime()),
-          moviebox: {
-            authenticated: mbpOk,
-            lastChecked: defaultSession.lastHealth?.lastChecked || null,
-            error: defaultSession.lastHealth?.error || null
-          },
-          tmdb: { configured: tmdbOk },
-          nuvioCloud: {
-            connected: cloudOk,
-            lastSync: process.env.NUVIO_CLOUD_LAST_SYNC || null
-          },
-          timezone: process.env.USER_TIMEZONE || "UTC"
+          health: await getHealthSnapshot(),
+          lastErrors: diagnosticsState.lastErrors,
+          cloudSync: diagnosticsState.cloudSync,
+          analytics: getAnalyticsSummary()
         });
       }
 
@@ -1365,8 +1533,9 @@ self.addEventListener('fetch', (e) => {
 
     return sendJson(res, 200, resolvedStreams);
   } catch (error) {
-    console.error(`[companion] ${error.message}`);
-    return sendJson(res, 502, { error: error.message });
+    const classified = rememberDiagnosticError(error, `${req.method} ${req.url}`);
+    console.error(`[companion] ${classified.message}`);
+    return sendJson(res, 502, { error: classified.message, code: classified.code, action: classified.action });
   }
 });
 

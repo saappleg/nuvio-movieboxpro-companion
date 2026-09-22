@@ -274,6 +274,27 @@ export function setupPage() {
       </div>
     </article>
 
+    <!-- System Health & Recovery -->
+    <article class="card wide" id="healthCard" style="background:linear-gradient(160deg,#111b31,#0a101f)">
+      <div class="card-header">
+        <h2>🩺 System Health & Recovery</h2>
+        <div class="status"><span class="dot" id="healthOverallDot"></span><strong id="healthOverall">Not checked</strong></div>
+      </div>
+      <p>Check MovieBox sessions, TMDb, the provider/catalog manifests, and Nuvio Cloud sync from one place.</p>
+      <div class="row" style="margin-bottom:14px">
+        <button id="runHealthCheck">Run Health Check</button>
+        <button class="secondary" id="recoverMoviebox">Re-authenticate MovieBox</button>
+        <button class="secondary" id="refreshDiagnostics">Refresh Diagnostics</button>
+        <span class="status">Last checked: <span id="healthCheckedAt">Never</span></span>
+      </div>
+      <div id="healthList" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px"></div>
+      <div class="message" id="healthMessage"></div>
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;color:var(--muted);font-size:13px">Show diagnostic details</summary>
+        <pre id="diagnosticsText" style="white-space:pre-wrap;max-height:220px;overflow:auto;color:var(--muted);font-size:11px;margin:10px 0 0;background:var(--panel-sub);padding:10px;border-radius:8px">No diagnostics loaded.</pre>
+      </details>
+    </article>
+
     <!-- 1. Companion Network Address -->
     <article class="card">
       <div class="card-header">
@@ -812,10 +833,110 @@ export function setupPage() {
       q('movieboxText').textContent = s.authenticated ? 'Authenticated' : 'Login Required';
       q('mbpBadge').innerHTML = '<span class="dot ' + (s.authenticated ? 'good' : 'bad') + '"></span> MovieBoxPro: ' + (s.authenticated ? 'Connected' : 'Login Required');
       msg('loginMessage', s.authenticated ? 'MovieBoxPro session is active and ready.' : 'Session not detected. Complete login and check again.', s.authenticated ? 'ok' : 'error');
+      await loadHealth();
     } catch (e) {
       msg('loginMessage', e.message, 'error');
     } finally {
       q('checkLogin').disabled = false;
+    }
+  };
+
+  function stateClass(state) {
+    return state === 'healthy' ? 'good' : (state === 'error' ? 'bad' : '');
+  }
+
+  function stateLabel(state) {
+    return state === 'healthy' ? 'Healthy' : (state === 'error' ? 'Needs attention' : (state === 'warning' ? 'Warning' : 'Not checked'));
+  }
+
+  function renderHealth(h = {}) {
+    const overall = h.status || 'unknown';
+    q('healthOverall').textContent = stateLabel(overall);
+    q('healthOverallDot').className = 'dot ' + stateClass(overall);
+    q('healthCheckedAt').textContent = h.checkedAt ? new Date(h.checkedAt).toLocaleString() : 'Not checked';
+
+    const list = q('healthList');
+    if (!list) return;
+    list.innerHTML = '';
+    const components = h.components || {};
+    Object.entries(components).forEach(([name, component]) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'background:var(--panel-sub);border:1px solid var(--line);border-radius:10px;padding:10px 12px';
+      const title = document.createElement('div');
+      title.style.cssText = 'display:flex;justify-content:space-between;gap:8px;font-weight:600';
+      const label = document.createElement('span');
+      label.textContent = name === 'moviebox' ? 'MovieBoxPro' : (name === 'nuvioCloud' ? 'Nuvio Cloud' : name === 'tmdb' ? 'TMDb' : 'Provider & Catalog');
+      const state = document.createElement('span');
+      state.style.color = component.state === 'healthy' ? 'var(--good)' : (component.state === 'error' ? 'var(--bad)' : 'var(--warn)');
+      state.textContent = stateLabel(component.state);
+      title.append(label, state);
+      const detail = document.createElement('div');
+      detail.style.cssText = 'color:var(--muted);font-size:12px;margin-top:5px';
+      detail.textContent = component.message || '';
+      row.append(title, detail);
+      if (component.action) {
+        const action = document.createElement('div');
+        action.style.cssText = 'color:var(--accent);font-size:11px;margin-top:5px';
+        action.textContent = 'Next: ' + component.action;
+        row.append(action);
+      }
+      list.appendChild(row);
+    });
+
+    (h.profiles || []).filter((profile) => profile.id !== 'default').forEach((profile) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'background:var(--panel-sub);border:1px solid var(--line);border-radius:10px;padding:10px 12px';
+      row.textContent = profile.name + ': ' + stateLabel(profile.component?.state);
+      list.appendChild(row);
+    });
+  }
+
+  async function loadHealth() {
+    const h = await api('/api/setup/health');
+    renderHealth(h);
+    const moviebox = h.components?.moviebox;
+    if (moviebox) {
+      const isAuth = moviebox.state === 'healthy';
+      q('movieboxText').textContent = isAuth ? 'Authenticated' : 'Login Required';
+      q('mbpBadge').innerHTML = '<span class="dot ' + (isAuth ? 'good' : 'bad') + '"></span> MovieBoxPro: ' + (isAuth ? 'Connected' : 'Login Required');
+    }
+    return h;
+  }
+
+  q('runHealthCheck').onclick = async () => {
+    try {
+      q('runHealthCheck').disabled = true;
+      msg('healthMessage', 'Checking sessions and upstream services…');
+      const h = await api('/api/setup/health-check', { method: 'POST' });
+      renderHealth(h);
+      msg('healthMessage', h.status === 'healthy' ? 'All configured services are healthy.' : 'Health check finished. Follow the next-step guidance above.', h.status === 'healthy' ? 'ok' : 'error');
+    } catch (e) {
+      msg('healthMessage', e.message, 'error');
+    } finally {
+      q('runHealthCheck').disabled = false;
+    }
+  };
+
+  q('recoverMoviebox').onclick = async () => {
+    try {
+      q('recoverMoviebox').disabled = true;
+      await api('/api/setup/login', { method: 'POST' });
+      msg('healthMessage', 'MovieBox login window opened. Complete the login there, then run the health check.', 'ok');
+    } catch (e) {
+      msg('healthMessage', e.message, 'error');
+    } finally {
+      q('recoverMoviebox').disabled = false;
+    }
+  };
+
+  q('refreshDiagnostics').onclick = async () => {
+    try {
+      const d = await api('/api/setup/diagnostics');
+      renderHealth(d.health);
+      q('diagnosticsText').textContent = JSON.stringify(d, null, 2);
+      msg('healthMessage', 'Diagnostics refreshed.', 'ok');
+    } catch (e) {
+      msg('healthMessage', e.message, 'error');
     }
   };
 
@@ -1252,14 +1373,9 @@ export function setupPage() {
 
   async function checkHealth() {
     try {
-      const h = await api('/api/setup/health');
-      if (h.moviebox) {
-        const isAuth = Boolean(h.moviebox.authenticated);
-        q('movieboxText').textContent = isAuth ? 'Authenticated' : 'Login Required';
-        q('mbpBadge').innerHTML = '<span class="dot ' + (isAuth ? 'good' : 'bad') + '"></span> MovieBoxPro: ' + (isAuth ? 'Connected' : 'Login Required');
-        if (!isAuth && h.moviebox.lastChecked) {
-          msg('loginMessage', 'Session expired or not logged in. Complete login to restore playback.', 'error');
-        }
+      const h = await loadHealth();
+      if (h.components?.moviebox?.state !== 'healthy' && h.checkedAt) {
+        msg('loginMessage', h.components?.moviebox?.action || 'Session expired or not logged in. Complete login to restore playback.', 'error');
       }
       await loadAnalytics();
     } catch {}

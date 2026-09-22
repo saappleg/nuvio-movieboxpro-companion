@@ -9,6 +9,9 @@ test("renders the guided setup dashboard without embedded secrets", () => {
   assert.match(html, /id="profileSelect"/);
   assert.match(html, /Stream Activity & Cache Analytics/);
   assert.match(html, /id="statAvgTime"/);
+  assert.match(html, /System Health & Recovery/);
+  assert.match(html, /id="runHealthCheck"/);
+  assert.match(html, /api\/setup\/diagnostics/);
   assert.match(html, /Open Login Window/);
   assert.match(html, /Reveal Provider URL/);
   assert.match(html, /Nuvio Cloud Sync/);
