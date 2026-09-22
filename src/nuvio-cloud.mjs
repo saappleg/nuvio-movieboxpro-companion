@@ -1,10 +1,23 @@
 import { tmdb, batchMap } from "./catalogs.mjs";
+import { withRetry } from "./reliability.mjs";
 
 const DEFAULT_NUVIO_CLOUD_URL = "https://api.nuvio.tv";
 export const DEFAULT_NUVIO_ANON_KEY = "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN";
 
 function getAnonKey(customKey) {
   return customKey || process.env.NUVIO_APP_ANON_KEY || DEFAULT_NUVIO_ANON_KEY;
+}
+
+async function fetchCloudResponse(fetchImpl, url, options) {
+  return withRetry(async () => {
+    const response = await fetchImpl(url, options);
+    if (!response.ok) {
+      const error = new Error(`Nuvio Cloud request failed (${response.status})`);
+      error.retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      throw error;
+    }
+    return response;
+  }, { retries: 2, delayMs: 250 });
 }
 
 /**
@@ -113,28 +126,24 @@ export async function fetchNuvioLibraryRaw(accessToken, profileId = 1, cloudUrl 
   const limit = 500;
   while (offset <= 2000) {
     try {
-      const libRes = await fetchImpl(`${base}/rest/v1/rpc/sync_pull_library`, {
+      const libRes = await fetchCloudResponse(fetchImpl, `${base}/rest/v1/rpc/sync_pull_library`, {
         method: "POST",
         headers,
         body: JSON.stringify({ p_profile_id: pIndex, p_limit: limit, p_offset: offset })
       });
-      if (libRes.ok) {
-        const data = await libRes.json();
-        const rows = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
-        items.push(...rows);
-        if (rows.length < limit) break;
-        offset += limit;
-      } else {
-        break;
-      }
-    } catch {
-      break;
+      const data = await libRes.json();
+      const rows = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+      items.push(...rows);
+      if (rows.length < limit) break;
+      offset += limit;
+    } catch (error) {
+      throw error;
     }
   }
 
   // 2. Pull watched items (snapshot)
   try {
-    const watchedRes = await fetchImpl(`${base}/rest/v1/rpc/sync_pull_watched_items`, {
+    const watchedRes = await fetchCloudResponse(fetchImpl, `${base}/rest/v1/rpc/sync_pull_watched_items`, {
       method: "POST",
       headers,
       body: JSON.stringify({ p_profile_id: pIndex, p_limit: 500, p_offset: 0 })
@@ -144,7 +153,9 @@ export async function fetchNuvioLibraryRaw(accessToken, profileId = 1, cloudUrl 
       const rows = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
       items.push(...rows);
     }
-  } catch {}
+  } catch (error) {
+    if (!items.length) throw error;
+  }
 
   return items;
 }
@@ -250,19 +261,22 @@ export async function enrichLibrarySeeds(seeds, fetchImpl = fetch) {
  * High-level function to sync Nuvio Cloud library, resolve titles, and format recommendation seeds.
  */
 export async function syncNuvioCloudLibrary({ accessToken, profileId, cloudUrl, anonKey }, fetchImpl = fetch) {
-  const rawItems = await fetchNuvioLibraryRaw(accessToken, profileId, cloudUrl, anonKey, fetchImpl);
-  const { series, movies } = extractMediaFromLibrary(rawItems);
+  return withRetry(async (attempt) => {
+    const rawItems = await fetchNuvioLibraryRaw(accessToken, profileId, cloudUrl, anonKey, fetchImpl);
+    const { series, movies } = extractMediaFromLibrary(rawItems);
 
-  // Enrich all library items to ensure valid TMDb IDs and names
-  const [enrichedSeries, enrichedMovies] = await Promise.all([
-    enrichLibrarySeeds(series, fetchImpl),
-    enrichLibrarySeeds(movies, fetchImpl)
-  ]);
+    // Enrich all library items to ensure valid TMDb IDs and names.
+    const [enrichedSeries, enrichedMovies] = await Promise.all([
+      enrichLibrarySeeds(series, fetchImpl),
+      enrichLibrarySeeds(movies, fetchImpl)
+    ]);
 
-  return {
-    itemCount: rawItems.length,
-    seriesSeeds: enrichedSeries,
-    movieSeeds: enrichedMovies,
-    syncedAt: new Date().toISOString()
-  };
+    return {
+      itemCount: rawItems.length,
+      seriesSeeds: enrichedSeries,
+      movieSeeds: enrichedMovies,
+      syncAttempts: attempt + 1,
+      syncedAt: new Date().toISOString()
+    };
+  }, { retries: 2, delayMs: 300 });
 }

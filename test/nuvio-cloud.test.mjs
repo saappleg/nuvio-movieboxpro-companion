@@ -109,3 +109,21 @@ test("enrichLibrarySeeds processes unlimited library items without slicing", asy
   assert.equal(enriched.length, 30);
   assert.equal(enriched[29].id, 129);
 });
+
+test("Nuvio Cloud sync retries a transient upstream failure", async () => {
+  let libraryCalls = 0;
+  const mockFetch = async (url) => {
+    const u = String(url);
+    if (u.includes("sync_pull_library")) {
+      libraryCalls++;
+      if (libraryCalls === 1) return mockResponse({ error: "temporary" }, 503);
+      return mockResponse([]);
+    }
+    if (u.includes("sync_pull_watched_items")) return mockResponse([]);
+    return mockResponse({});
+  };
+
+  const summary = await syncNuvioCloudLibrary({ accessToken: "mock-token", profileId: 1 }, mockFetch);
+  assert.equal(summary.itemCount, 0);
+  assert.equal(libraryCalls, 2);
+});

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0
+
+- **Stable Companion Release**: Promoted the MovieBoxPro Companion to v1 stable with AIOStreams/Stremio compatibility, multi-profile persistence, and production container publishing.
+- **Health & Recovery Diagnostics**: Added one-click checks for MovieBoxPro, TMDb, Nuvio Cloud, provider/catalog manifests, per-profile session monitoring, and guided MovieBox re-authentication.
+- **Reliable Cloud Sync**: Added retry handling for transient Nuvio Cloud library and watched-item failures.
+- **Browser Queue Regression Fix**: Prevented queued browser tasks from receiving a prior status object as a profile identifier, eliminating accidental `[object object]` browser profiles.
+
 ## 1.0.0-beta.13
 
 - **AIOStreams / Stremio Adapter**: Added a key-protected standard Stremio stream manifest and stream route for AIOStreams and compatible clients, with IntroDB enrichment and MovieBoxPro header-aware playback proxying.
